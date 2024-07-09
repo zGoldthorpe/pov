@@ -23,8 +23,8 @@ def _print_frame(stacklimit, file, _pov_depth):
     """
     stack = inspect.stack()[_pov_depth:]
     stack_range = range(stacklimit if stacklimit else len(stack))
-    for frame, _ in zip(reversed(stack), stack_range):
-        print(f"[S] {frame.filename}:{frame.lineno} ({frame.function})", file=file)
+    for frame, _ in reversed(list(zip(stack, stack_range))):
+        print(f"[s] {frame.filename}:{frame.lineno} ({frame.function})", file=file)
     
     return stack
 
@@ -38,7 +38,7 @@ def log(*args, stacklimit=1, file=sys.stderr, _pov_depth=1, **kwargs):
     
     _print_frame(stacklimit, file, _pov_depth+1)
 
-    print(f"[L]", *args, **kwargs, file=file)
+    print(f"[l]", *args, **kwargs, file=file)
 
 def view(*exprs, heading=None, stacklimit=1, file=sys.stderr, interact=False, exitpt=False, _pov_depth=1):
     """
