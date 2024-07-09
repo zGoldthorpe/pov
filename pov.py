@@ -111,7 +111,7 @@ class POV:
         def _pov_new_setattr(_self, _attr, _value):
             depth = 0
             for frame in inspect.stack():
-                if frame.function == "_pov_new_setattr":
+                if frame.function.startswith("_pov"):
                     depth += 1
                 else:
                     break
@@ -120,11 +120,55 @@ class POV:
                 POV(stacklimit=self._stacklimit,
                     file=self._file,
                     _pov_depth=depth)._print(
-                        f"[t]\t{cls.__name__}.{_attr}", ":=", _value,
+                        f"[a]\t{cls.__name__}.{_attr}", ":=", _value,
                         "::", f"[{hex(id(_self))}]")
             return old_setattr(_self, _attr, _value)
         
         cls.__setattr__ = _pov_new_setattr
+
+        return self
+
+    def track_memfun(self, obj:type|object, function:str):
+        """
+        Track member function calls
+        """
+        cls = obj if isinstance(obj, type) else type(obj)
+        func = cls.__dict__[function]
+        self._print("Tracking", f"{cls.__name__}.{function}", "method",
+            f"for object {hex(id(obj))}" if not isinstance(obj, type) else "")
+
+        if not hasattr(cls, "_pov_fun_dict"):
+            cls._pov_fun_dict = {}
+            old_getattribute = cls.__getattribute__
+            def _pov_new_getattribute(_self, attr):
+                if attr not in cls._pov_fun_dict or \
+                        not (isinstance(obj, type) or _self == obj):
+                    return old_getattribute(_self, attr)
+                def _pov_bind_getattribute(*args, **kwargs):
+                    return cls._pov_fun_dict[attr](_self, *args, **kwargs)
+                return _pov_bind_getattribute
+            cls.__getattribute__ = _pov_new_getattribute
+            
+        def _pov_new_function(*args, **kwargs):
+            depth = 0
+            for frame in inspect.stack():
+                if frame.function.startswith("_pov"):
+                    depth += 1
+                else:
+                    break
+            
+            pov = POV(stacklimit=self._stacklimit, file=self._file, _pov_depth=depth)
+            pov._print("[f]", f"{cls.__name__}.{function}(")
+            for arg in args:
+                pov._print("[f]\t", arg, "::", type(arg).__name__)
+            for kw in kwargs:
+                val = kwargs[kw]
+                pov._print("[f]\t", f"{kw}={val}", "::", type(val).__name__)
+            
+            res = func(*args, **kwargs)
+            pov._print("[f]", ")", "=>", res, "::", type(res).__name__)
+
+        cls._pov_fun_dict[function] = _pov_new_function
 
         return self
 
@@ -151,3 +195,9 @@ def track_attr(obj, *attrs, all_attrs=False):
     POV.track_attr interface
     """
     return POV(_pov_depth=1).track_attr(obj, *attrs, all_attrs=all_attrs)
+
+def track_memfun(obj, function):
+    """
+    POV.track_memfun interface
+    """
+    return POV(_pov_depth=1).track_memfun(obj, function)
