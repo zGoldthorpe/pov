@@ -26,10 +26,19 @@ class POV:
         for frame, _ in reversed(list(zip(self._stack, stackrange))):
             self._print("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})")
     
-    def __del__(self):
+    def flush(self):
+        """
+        Flush output
+        """
         for args, kwargs in self._log:
             kwargs["file"] = self._file
             print(*args, **kwargs)
+        self._log.clear()
+
+        return self
+    
+    def __del__(self):
+        self.flush()
 
     def _print(self, *args, **kwargs):
         self._log.append((args, kwargs))
@@ -90,12 +99,14 @@ class POV:
 
         return self
 
-    def track_attr(self, obj:type|object, *members:str, all_members=False):
+    def track_attr(self, obj:type|object, *attrs:str, all_attrs=False):
         """
-        Track all modifications of a class or object's members.
+        Track all modifications of a class or object's attrs.
         """
         cls = obj if isinstance(obj, type) else type(obj)
         old_setattr = cls.__setattr__
+        self._print("Tracking", "all attrs" if all_attrs else ", ".join(attrs),
+                    "for", cls.__name__, f"object {hex(id(obj))}" if not isinstance(obj, type) else "objects")
 
         def _pov_new_setattr(_self, _attr, _value):
             depth = 0
@@ -105,13 +116,17 @@ class POV:
                 else:
                     break
 
-            if (all_members or _attr in members) and (isinstance(obj, type) or _self == obj):
+            if (all_attrs or _attr in attrs) and (isinstance(obj, type) or _self == obj):
                 POV(stacklimit=self._stacklimit,
                     file=self._file,
-                    _pov_depth=depth)._print(f"[t]\t{obj}.{_attr}", ":=", _value)
+                    _pov_depth=depth)._print(
+                        f"[t]\t{cls.__name__}.{_attr}", ":=", _value,
+                        "::", f"[{hex(id(_self))}]")
             return old_setattr(_self, _attr, _value)
         
         cls.__setattr__ = _pov_new_setattr
+
+        return self
 
 def log(*args, **kwargs):
     """
@@ -126,5 +141,13 @@ def view(*exprs):
     return POV(_pov_depth=1).view(*exprs)
 
 def interact(normal_exit=False, normal_quit=True):
+    """
+    POV.interact interface
+    """
     return POV(_pov_depth=1).interact(normal_exit=normal_exit, normal_quit=normal_quit)
 
+def track_attr(obj, *attrs, all_attrs=False):
+    """
+    POV.track_attr interface
+    """
+    return POV(_pov_depth=1).track_attr(obj, *attrs, all_attrs=all_attrs)
