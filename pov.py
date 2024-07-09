@@ -8,43 +8,9 @@ import code
 import inspect
 import sys
 
-class _pov_printer:
-
-    _print_queue = []
-    _print_depth = 0
-
-    def __init__(self, file):
-        self._file = file
-
-    def __enter__(self):
-        _pov_printer._print_depth += 1
-        self._print_queue = []
-        return self
-    
-    def print(self, *args, **kwargs) -> None:
-        kwargs["file"] = self._file
-        self._print_queue.append((args, kwargs))
-    
-    def print_if(self, *args, **kwargs) -> None:
-        if self.toplevel:
-            self._print(*args, **kwargs)
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        _pov_printer._print_depth -= 1
-        _pov_printer._print_queue.extend(self._print_queue)
-        
-        if _pov_printer._print_depth == 0:
-            for args, kwargs in _pov_printer._print_queue:
-                print(*args, **kwargs)
-            _pov_printer._print_queue.clear()
-    
-    @property
-    def toplevel(self) -> bool:
-        return _pov_printer._print_depth == 1
-
 class POV:
 
-    def __init__(self, *, stacklimit=1, file=sys.stderr, _pov_depth=1):
+    def __init__(self, *, stacklimit=1, file=sys.stderr, _pov_depth=0):
         """
         Initialisation parameters:
         stacklimit: how many levels of stack context to print (None for no limit)
@@ -52,17 +18,22 @@ class POV:
         file:       print output file
                     (default: stderr)
         """
-        self._stack = inspect.stack()[_pov_depth:]
+        self._stack = inspect.stack()[_pov_depth+1:]
+        self._stacklimit = stacklimit
         self._file = file
         stackrange = range(stacklimit if stacklimit else len(self._stack))
-        self._traceback = []
+        self._log = []
         for frame, _ in reversed(list(zip(self._stack, stackrange))):
-            self._traceback.append(f"{frame.filename}:{frame.lineno} ({frame.function})")
+            self._print("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})")
     
-    def _print_tb(self, printer:_pov_printer) -> None:
-        for tb in self._traceback:
-            printer.print("[/]", tb)
-    
+    def __del__(self):
+        for args, kwargs in self._log:
+            kwargs["file"] = self._file
+            print(*args, **kwargs)
+
+    def _print(self, *args, **kwargs):
+        self._log.append((args, kwargs))
+
     def _get_context(self):
         frame = self._stack[0].frame
         return dict(frame.f_locals, **frame.f_globals)
@@ -71,10 +42,7 @@ class POV:
         """
         Simple logger; behaves like an ordinary print.
         """
-        with _pov_printer(self._file) as printer:
-            self._print_tb(printer)
-            printer.print(f"[i]", *args, **kwargs)
-
+        self._print("[i]", *args, **kwargs)
         return self
     
     def view(self, *exprs : str):
@@ -82,19 +50,17 @@ class POV:
         View the value of various expressions.
         """
 
-        with _pov_printer(self._file) as printer:
-            self._print_tb(printer)
-            context = self._get_context()
-            
-            for expr in exprs:
-                if not isinstance(expr, str):
-                    printer.print("[+]", expr, sep='\t')
-                    continue
-                try:
-                    val = eval(expr, context)
-                    printer.print(f"[+]\t{expr}", "=>", val, "::", type(val).__name__)
-                except Exception as e:
-                    printer.print(f"[-]\t{expr}", "><", type(e).__name__, "::", e)
+        context = self._get_context()
+        
+        for expr in exprs:
+            if not isinstance(expr, str):
+                self._print("[+]", expr, sep='\t')
+                continue
+            try:
+                val = eval(expr, context)
+                self._print(f"[+]\t{expr}", "=>", val, "::", type(val).__name__)
+            except Exception as e:
+                self._print(f"[-]\t{expr}", "><", type(e).__name__, "::", e)
 
         return self
 
@@ -120,19 +86,45 @@ class POV:
         if not normal_quit:
             context["quit"] = lambda *_: print(msg)
         
-        code.interact(banner="[i] Entering interactive mode.\n"
-                                + msg,
-                        local=context)
+        code.interact(banner=f"[i] Entering interactive mode.\n{msg}", local=context, exitmsg="[i] Resuming normal execution...")
 
+        return self
 
-def log(*args, stacklimit=1, file=sys.stderr, _pov_depth=1, **kwargs):
+    def track_attr(self, obj:type|object, *members:str, all_members=False):
+        """
+        Track all modifications of a class or object's members.
+        """
+        cls = obj if isinstance(obj, type) else type(obj)
+        old_setattr = cls.__setattr__
+
+        def _pov_new_setattr(_self, _attr, _value):
+            depth = 0
+            for frame in inspect.stack():
+                if frame.function == "_pov_new_setattr":
+                    depth += 1
+                else:
+                    break
+
+            if (all_members or _attr in members) and (isinstance(obj, type) or _self == obj):
+                POV(stacklimit=self._stacklimit,
+                    file=self._file,
+                    _pov_depth=depth)._print(f"[t]\t{obj}.{_attr}", ":=", _value)
+            return old_setattr(_self, _attr, _value)
+        
+        cls.__setattr__ = _pov_new_setattr
+
+def log(*args, **kwargs):
     """
     POV.log interface
     """
-    return POV(stacklimit=stacklimit, file=file, _pov_depth=_pov_depth+1).log(*args, **kwargs)
+    return POV(_pov_depth=1).log(*args, **kwargs)
 
-def view(*exprs, stacklimit=1, file=sys.stderr, _pov_depth=1):
+def view(*exprs):
     """
     POV.view interface
     """
-    return POV(stacklimit=stacklimit, file=file, _pov_depth=_pov_depth+1).view(*exprs)
+    return POV(_pov_depth=1).view(*exprs)
+
+def interact(normal_exit=False, normal_quit=True):
+    return POV(_pov_depth=1).interact(normal_exit=normal_exit, normal_quit=normal_quit)
+
