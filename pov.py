@@ -8,9 +8,12 @@ import code
 import inspect
 import sys
 
+_global_stacklimit=1
+_global_file=sys.stderr
+
 class POV:
 
-    def __init__(self, *, stacklimit=1, file=sys.stderr, _pov_depth=0):
+    def __init__(self, *, stacklimit=-1, file=None, _pov_depth=0):
         """
         Initialisation parameters:
         stacklimit: how many levels of stack context to print (None for no limit)
@@ -18,6 +21,11 @@ class POV:
         file:       print output file
                     (default: stderr)
         """
+        if stacklimit == -1:
+            stacklimit = _global_stacklimit
+        if file is None:
+            file = _global_file
+        
         self._stack = inspect.stack()[_pov_depth+1:]
         self._stacklimit = stacklimit
         self._file = file
@@ -171,6 +179,39 @@ class POV:
         cls._pov_fun_dict[function] = _pov_new_function
 
         return self
+    
+    def stack(self, stacklimit:int|None):
+        """
+        Modify the stacklimit
+        """
+        self._stacklimit = stacklimit
+        return self
+    
+    def print_to(self, file):
+        """
+        Modify output file
+        """
+        self._file = file
+        return self
+
+def stack(stacklimit, globally=False):
+    """
+    POV.stack interface
+    """
+    if globally:
+        global _global_stacklimit
+        _global_stacklimit = stacklimit
+    
+    return POV(stacklimit=stacklimit, _pov_depth=1)
+
+def print_to(file, globally=False):
+    """
+    POV.print_to interface
+    """
+    if globally:
+        global _global_file
+        _global_file = file
+    return POV(file=file, _pov_depth=1)
 
 def log(*args, **kwargs):
     """
