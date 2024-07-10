@@ -31,17 +31,19 @@ class POV:
         self._file = file
         stackrange = range(stacklimit if stacklimit else len(self._stack))
         self._log = []
+        self._trace = []
         for frame, _ in reversed(list(zip(self._stack, stackrange))):
-            self._print("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})")
+            self._trace.append((("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})"), {}))
     
     def flush(self):
         """
         Flush output
         """
-        for args, kwargs in self._log:
-            kwargs["file"] = self._file
-            print(*args, **kwargs)
-        self._log.clear()
+        if self._log:
+            for args, kwargs in self._trace + self._log:
+                kwargs["file"] = self._file
+                print(*args, **kwargs)
+            self._log.clear()
 
         return self
     
@@ -50,6 +52,7 @@ class POV:
 
     def _print(self, *args, **kwargs):
         self._log.append((args, kwargs))
+        return self
 
     def _get_context(self):
         frame = self._stack[0].frame
@@ -107,32 +110,58 @@ class POV:
 
         return self
 
-    def track_attr(self, obj:type|object, *attrs:str, all_attrs=False):
+    def track_attr(self, obj:type|object, *attrs:str):
         """
         Track all modifications of a class or object's attrs.
+        Use `all` (the built-in function) to track all attributes;
+        otherwise, attributes should be strings.
         """
         cls = obj if isinstance(obj, type) else type(obj)
         old_setattr = cls.__setattr__
-        self._print("Tracking", "all attrs" if all_attrs else ", ".join(attrs),
-                    "for", cls.__name__, f"object {hex(id(obj))}" if not isinstance(obj, type) else "objects")
-
-        def _pov_new_setattr(_self, _attr, _value):
-            depth = 0
-            for frame in inspect.stack():
-                if frame.function.startswith("_pov"):
-                    depth += 1
-                else:
-                    break
-
-            if (all_attrs or _attr in attrs) and (isinstance(obj, type) or _self == obj):
-                POV(stacklimit=self._stacklimit,
-                    file=self._file,
-                    _pov_depth=depth)._print(
-                        f"[a]\t{cls.__name__}.{_attr}", ":=", _value,
-                        "::", f"[{hex(id(_self))}]")
-            return old_setattr(_self, _attr, _value)
+        self._print("Tracking", "all attrs" if all in attrs else ", ".join(attrs),
+                    "for", cls.__name__, f"object {hex(id(obj))}" if not isinstance(obj, type) else "objects"
+                    ).flush()
         
-        cls.__setattr__ = _pov_new_setattr
+        if not hasattr(cls, "_pov_attr_dict"):
+            cls._pov_attr_dict = {cls : {}}
+            """
+            _pov_attr_dict[cls]: attributes tracked for all instances of cls
+            _pov_attr_dict[obj]: attributes tracked for just obj
+            The value is another dict, which maps str|all to POV params
+            """
+            old_setattr  = cls.__setattr__
+
+            def _pov_new_setattr(self_, attr, value):
+
+                pov_params = {}
+                pov_params.update(cls._pov_attr_dict[cls].get(all, {}))
+                cls_attr_dict = cls._pov_attr_dict.get(obj, {})
+                pov_params.update(cls_attr_dict.get(all, {}))
+                pov_params.update(cls_attr_dict.get(attr, {}))
+                
+                if pov_params:
+                    depth = 0
+                    for frame in inspect.stack():
+                        if frame.function.startswith("_pov"):
+                            depth += 1
+                        else:
+                            break
+                    
+                    POV(_pov_depth=depth, **pov_params)._print(
+                            "[a]",
+                            f"{cls.__name__}.{attr} := {value}",
+                            "::",
+                            f"[{hex(id(self_))}]"
+                        )
+                    
+                return old_setattr(self_, attr, value)
+            
+            cls.__setattr__ = _pov_new_setattr
+
+        attr_dict = cls._pov_attr_dict.setdefault(obj, {})
+        pov_params = dict(stacklimit=self._stacklimit, file=self._file)
+        for attr in attrs:
+            attr_dict[attr] = pov_params
 
         return self
 
@@ -143,17 +172,18 @@ class POV:
         cls = obj if isinstance(obj, type) else type(obj)
         func = cls.__dict__[function]
         self._print("Tracking", f"{cls.__name__}.{function}", "method",
-            f"for object {hex(id(obj))}" if not isinstance(obj, type) else "")
+            f"for object {hex(id(obj))}" if not isinstance(obj, type) else ""
+            ).flush()
 
         if not hasattr(cls, "_pov_fun_dict"):
             cls._pov_fun_dict = {}
             old_getattribute = cls.__getattribute__
-            def _pov_new_getattribute(_self, attr):
+            def _pov_new_getattribute(self_, attr):
                 if attr not in cls._pov_fun_dict or \
-                        not (isinstance(obj, type) or _self == obj):
-                    return old_getattribute(_self, attr)
+                        not (isinstance(obj, type) or self_ == obj):
+                    return old_getattribute(self_, attr)
                 def _pov_bind_getattribute(*args, **kwargs):
-                    return cls._pov_fun_dict[attr](_self, *args, **kwargs)
+                    return cls._pov_fun_dict[attr](self_, *args, **kwargs)
                 return _pov_bind_getattribute
             cls.__getattribute__ = _pov_new_getattribute
             
@@ -231,11 +261,11 @@ def interact(normal_exit=False, normal_quit=True):
     """
     return POV(_pov_depth=1).interact(normal_exit=normal_exit, normal_quit=normal_quit)
 
-def track_attr(obj, *attrs, all_attrs=False):
+def track_attr(obj, *attrs):
     """
     POV.track_attr interface
     """
-    return POV(_pov_depth=1).track_attr(obj, *attrs, all_attrs=all_attrs)
+    return POV(_pov_depth=1).track_attr(obj, *attrs)
 
 def track_memfun(obj, function):
     """

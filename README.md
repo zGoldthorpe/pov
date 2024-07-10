@@ -22,3 +22,5 @@ def foo(x, y, z):
     __import__("pov").view("x.bar", "y.baz()")
     # ...
 ```
+
+See `example.py` for examples.
