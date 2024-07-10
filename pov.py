@@ -29,12 +29,20 @@ class POV:
         self._stack = inspect.stack()[_pov_depth+1:]
         self._stacklimit = stacklimit
         self._file = file
-        stackrange = range(stacklimit if stacklimit else len(self._stack))
+        if not stacklimit:
+            stacklimit = len(self._stack)
+        
         self._log = []
         self._trace = []
-        for frame, _ in reversed(list(zip(self._stack, stackrange))):
-            if not frame.function.startswith("_pov"):
-                self._trace.append((("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})"), {}))
+
+        for frame in self._stack:
+            if frame.function.startswith("_pov"):
+                continue
+            self._trace.append((("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})"), {}))
+            stacklimit -= 1
+            if stacklimit == 0:
+                break
+        self._trace.reverse()
     
     def flush(self):
         """
@@ -177,9 +185,6 @@ class POV:
         """
         cls = obj if isinstance(obj, type) else type(obj)
         func = cls.__dict__[function]
-        self._print("Tracking", f"{cls.__name__}.{function}", "method",
-            f"for object {hex(id(obj))}" if not isinstance(obj, type) else ""
-            ).flush()
 
         if not hasattr(cls, "_pov_fun_dict"):
             cls._pov_fun_dict = {}
@@ -192,24 +197,44 @@ class POV:
                     return cls._pov_fun_dict[attr](self_, *args, **kwargs)
                 return _pov_bind_getattribute
             cls.__getattribute__ = _pov_new_getattribute
-            
-        def _pov_new_function(*args, **kwargs):
-            
-            pov = POV(stacklimit=self._stacklimit, file=self._file, _pov_depth=1)
-            pov._print("[f]", f"{cls.__name__}.{function}(")
-            for arg in args:
-                pov._print("[f]\t", arg, "::", type(arg).__name__)
-            for kw in kwargs:
-                val = kwargs[kw]
-                pov._print("[f]\t", f"{kw}={val}", "::", type(val).__name__)
-            
-            res = func(*args, **kwargs)
-            pov._print("[f]", ")", "=>", res, "::", type(res).__name__)
-            return res
 
-        cls._pov_fun_dict[function] = _pov_new_function
+        funcname = f"{cls.__name__}.{function}" if isinstance(obj, type) else f"{cls.__name__}<{hex(id(obj))}>.{function}"
+        cls._pov_fun_dict[function] = self.track_as(funcname)(func)
 
         return self
+
+    def track_as(self, funcname):
+        """
+        Decorator wrapping functions to enable tracking
+        """
+        def _pov_wrapper(func):
+
+            self._print("[i]", "Tracking function", funcname).flush()
+
+            def _pov_tracked_function(*args, **kwargs):
+                pov = POV(
+                    stacklimit=self._stacklimit,
+                    file=self._file,
+                    _pov_depth=1
+                )
+                pov._print(f"[f] {funcname}(")
+                for arg in args:
+                    pov._print("[f]\t", arg, "::", type(arg).__name__)
+                for kw, val in kwargs.items():
+                    pov._print("[f]\t", f"{kw}={val}", "::", type(val).__name__)
+
+                res = func(*args, **kwargs)
+                pov._print("[f]", ")", "=>", res, "::", type(res).__name__)
+                
+                return res
+            return _pov_tracked_function
+        return _pov_wrapper
+    
+    def track(self, func):
+        """
+        Direct wrapper for function tracking.
+        """
+        return self.track_as(func.__name__)(func)
     
     def stack(self, stacklimit:int|None):
         """
@@ -431,3 +456,15 @@ def track_memfun(obj, function):
     POV.track_memfun interface
     """
     return POV(_pov_depth=1).track_memfun(obj, function)
+
+def track_as(name):
+    """
+    POV.track_as interface
+    """
+    return POV(_pov_depth=1).track_as(name)
+
+def track(func):
+    """
+    POV.track interface
+    """
+    return POV(_pov_depth=1).track(func)
