@@ -154,7 +154,11 @@ class POV:
                             .stack(self._stacklimit)\
                             .print_to(self._file)\
                             .name(f"{cls.__name__}<{hex(id(self_))}>.{attr}")
-                  
+                    elif isinstance(value, list):
+                        value = POVList(value)\
+                            .stack(self._stacklimit)\
+                            .print_to(self._file)\
+                            .name(f"{cls.__name__}<{hex(id(self_))}>.{attr}")
                     
                 return old_setattr(self_, attr, value)
             
@@ -221,17 +225,16 @@ class POV:
         self._file = file
         return self
 
-class POVDict(dict):
+class POVObj:
     """
-    Dictionary wrapper, to track modifications and "get" key-misses
+    Base class for wrapping Python data structures
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, name, base_type):
         self._stacklimit = _global_stacklimit
         self._file = _global_file
-        self._name = "POVDict"
-    
+        self._name = name
+        self._base_type = base_type
+        
     def stack(self, stacklimit):
         self._stacklimit = stacklimit
         return self
@@ -243,77 +246,140 @@ class POVDict(dict):
     def name(self, name):
         self._name = name
         return self
-
+    
     @property
     def _pov(self):
         return POV(stacklimit=self._stacklimit, file=self._file, _pov_depth=2)
     
     def __repr__(self):
-        return f"{self._name}{super().__repr__()}"
+        return f"{self._name}{self._base_type.__repr__(self)}"
 
-    def __delitem__(self, key):
-        self._pov._print("[a]", "del", self._name, '[', key, '::', type(key).__name__, ']')
-        return super().__delitem__(self, key)
+class POVDict(POVObj, dict):
+    """
+    Dictionary wrapper, to track modifications and "get" key-misses
+    """
+
+    def __init__(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        POVObj.__init__(self, "POVDict", dict)
     
-    def __setitem__(self, key, value):
-        self._pov._print("[a]", self._name, '[', key, '::', type(key).__name__, ']',
+    def __delitem__(self, key, /):
+        self._pov._print("[a]", "del", self._name, '[', key, "::", type(key).__name__, ']')
+        return dict.__delitem__(self, key)
+    
+    def __setitem__(self, key, value, /):
+        self._pov._print("[a]", self._name, '[', key, "::", type(key).__name__, ']',
                          ":=", value, "::", type(value).__name__)
-        return super().__setitem__(key, value)
+        return dict.__setitem__(self, key, value)
     
-    def clear(self):
+    def __ior__(self, rhs, /):
+        pov = self._pov
+        pov._print("[a]", self._name, "|=")
+        rhs = dict(rhs)
+        for k, v in rhs:
+            pov._print("[a]\t", k, "::", type(k).__name__, "=>", v, "::", type(v).__name__)
+        return dict.__ior__(self, rhs)
+
+    def clear(self, /):
         self._pov._print("[a]", self._name, 'cleared')
-        return super().clear()
-    
-    def copy(self):
-        self._pov._print("[a]", self._name, 'copied')
-        return POVDict(super().copy())\
-                .stack(self._stacklimit)\
-                .print_to(self._file)\
-                .name(self._name + "*")
+        return dict.clear(self)
     
     def get(self, key, default=None, /):
         if key not in self:
-            self._pov._print("[a]", self._name, 'get(', key, '::', type(key).__name__, ') missed',
-                             "=>", default, '::', type(default).__name__)
-        return super().get(key, default)
+            self._pov._print("[a]", self._name, 'get(', key, "::", type(key).__name__, ') missed',
+                             "=>", default, "::", type(default).__name__)
+        return dict.get(self, key, default)
     
     def pop(self, key, default=None, /):
         had = key in self
-        value = super().pop(key, default)
-        self._pov._print("[a]", self._name, "pop(", key, '::', type(key).__name__, ')',
-                        "<miss>" if not had else "<hit>", "=>", value, '::', type(value).__name__)
+        value = dict.pop(self, key, default)
+        self._pov._print("[a]", self._name, "pop(", key, "::", type(key).__name__, ')',
+                        "<miss>" if not had else "<hit>", "=>", value, "::", type(value).__name__)
         return value
     
-    def popitem(self):
-        k, v = super().popitem()
+    def popitem(self, /):
+        k, v = dict.popitem(self)
         self._pov._print("[a]", self._name, "popitem", "=>",
-                         '(', k, '::', type(k).__name__,
-                         ',', v, '::', type(v).__name__, ')')
+                         '(', k, "::", type(k).__name__,
+                         ',', v, "::", type(v).__name__, ')')
         return k, v
     
     def setdefault(self, key, default=None, /):
         had = key in self
-        value = super().setdefault(key, default)
-        self._pov._print("[a]", self._name, "setdefault(", key, '::', type(key).__name__, ')',
-                         '=>', value, '::', type(value).__name__, "<no update>" if had else "<updated>")
+        value = dict.setdefault(self, key, default)
+        self._pov._print("[a]", self._name, "setdefault(", key, "::", type(key).__name__, ')',
+                         '=>', value, "::", type(value).__name__, "<no update>" if had else "<updated>")
         return value
     
     def update(self, *args, **kwargs):
         pov = self._pov
         pov._print("[a]", self._name, "update:")
         for arg in args:
-            if hasattr(arg, 'keys'):
-                for key in arg:
-                    val = arg[key]
-                    pov._print("[a]\t", key, "::", type(key).__name__, "=>", val, "::", type(val).__name__)
-            else:
-                for k, v in arg:
-                    pov._print("[a]\t", k, "::", type(k).__name__, "=>", v, "::", type(v).__name__)
+            arg = dict(arg)
+            for key in arg:
+                val = arg[key]
+                pov._print("[a]\t", key, "::", type(key).__name__, "=>", val, "::", type(val).__name__)
         for kw in kwargs:
             val = kwargs[kw]
             pov._print("[a]\t", kw, "::", type(kw).__name__, "=>", val, "::", type(val).__name__)
-        return super().update(*args, **kwargs)
+        return dict.update(self, *args, **kwargs)
 
+class POVList(POVObj, list):
+    
+    def __init__(self, *args, **kwargs):
+        list.__init__(self, *args, **kwargs)
+        POVObj.__init__(self, "POVList", list)
+    
+    def __delitem__(self, key, /):
+        self._pov._print("[a]", "del", self._name, '[', key, "::", type(key).__name__, ']')
+        return list.__delitem__(self, key)
+    
+    def __iadd__(self, rhs, /):
+        rhs = list(rhs)
+        pov = self._pov
+        pov._print("[a]", self._name, "+=")
+        for it in rhs:
+            pov._print("[a]\t", it, "::", type(it).__name__)
+        return list.__iadd__(self, rhs)
+    
+    def __imul__(self, mul, /):
+        self._pov._print("[a]", self._name, "*=", mul, "::", type(mul).__name__)
+        return list.__imul__(self, mul)
+    
+    def __setitem__(self, index, value, /):
+        self._pov._print("[a]", self._name,
+                        f"[{index}]",
+                        ":=", value, "::", type(value).__name__)
+        return list.__setitem__(self, index, value)
+    
+    def append(self, obj, /):
+        self._pov._print("[a]", self._name, "append(", obj, "::", type(obj).__name__, ")")
+        return list.append(self, obj)
+
+    def clear(self, /):
+        self._pov._print("[a]", self._name, "cleared")
+        return list.clear(self)
+    
+    def insert(self, index, obj, /):
+        self._pov._print("[a]", self._name, "insert", obj, "::", type(obj).__name__, "at index", index)
+        return list.insert(self, index, obj)
+    
+    def pop(self, index=-1, /):
+        value = list.pop(self, index)
+        self._pov._print("[a]", self._name, f"pop({index})", "=>", value, "::", type(value).__name__)
+        return value
+    
+    def remove(self, obj, /):
+        self._pov._print("[a]", self._name, "removing", obj, "::", type(obj).__name__)
+        return list.remove(self, obj)
+
+    def reverse(self, /):
+        self._pov._print("[a]", self._name, "in-place reversal")
+        return list.reverse(self)
+    
+    def sort(self, *, key=None, reverse=False):
+        self._pov._print("[a]", self._name, "sorted")
+        return list.sort(self, key=key, reverse=reverse)
 
 ##### Front-end API #####
 
