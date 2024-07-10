@@ -36,14 +36,17 @@ class Factors:
         return "(%s)" % " * ".join(f"{p}**{e}" for p, e in self._prime_factors.items())
     
     @property
-    @__import__("pov").stack(None).track_as("Factors.value<property>")
-    # properties need to be explicitly wrapped
     def value(self):
         return eval(repr(self))
+    
+    @staticmethod
+    def about():
+        return "This function factorises a product-list of numbers."
     
 if __name__ == "__main__":
     fac = Factors(16, 625, 39, 39)
 
+    print("About:", fac.about())
     print("Factors:", fac)
 
     fac.factor_exponents(True)

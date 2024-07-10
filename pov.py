@@ -20,7 +20,6 @@ class POV:
                 self.style = style
 
             def show(self, pretty):
-                pretty &= sys.platform != 'win32'
                 if pretty and sys.platform != 'win32':
                     return f"{self.style}{self.symbol}\033[m"
                 return self.symbol
@@ -53,16 +52,15 @@ class POV:
             stacklimit = len(self._stack)
         
         self._log = []
-        self._trace = []
 
         for frame in self._stack:
             if frame.function.startswith("_pov"):
                 continue
-            self._trace.append((POV.LOG.PATH, (f"{frame.filename}:{frame.lineno} ({frame.function})",), {}))
+            self._log.append((POV.LOG.PATH, (f"{frame.filename}:{frame.lineno} ({frame.function})",), {}))
             stacklimit -= 1
             if stacklimit == 0:
                 break
-        self._trace.reverse()
+        self._log.reverse()
     
     def flush(self):
         """
@@ -70,7 +68,7 @@ class POV:
         """
         isatty = hasattr(self._file, 'isatty') and self._file.isatty()
         if self._log:
-            for log, args, kwargs in self._trace + self._log:
+            for log, args, kwargs in self._log:
                 kwargs["file"] = self._file
                 print(log.show(isatty), *args, **kwargs)
             self._log.clear()
@@ -239,6 +237,17 @@ class POV:
                 for member, definition in target.__dict__.items():
                     if callable(definition) and member not in ["__repr__", "__str__"]:
                         body[member] = self.track_as(f"{target_name}.{member}")(definition)
+                    elif isinstance(definition, property):
+                        fget = definition.fget
+                        fset = definition.fset
+                        fdel = definition.fdel
+                        if fget:
+                            fget = self.track_as(f"{target_name}.{member}<get>")(fget)
+                        if fset:
+                            fset = self.track_as(f"{target_name}.{member}<set>")(fset)
+                        if fdel:
+                            fdel = self.track_as(f"{target_name}.{member}<del>")(fdel)
+                        body[member] = property(fget, fset, fdel)
                     else:
                         body[member] = definition
                 
@@ -253,7 +262,12 @@ class POV:
                         file=self._file,
                         _pov_depth=1
                     )
-                    pov._print(POV.LOG.FUNC, f"{target_name}(")
+                    name = target_name
+                    if isinstance(target, staticmethod):
+                        args = args[1:]
+                        name += "<static>"
+                    
+                    pov._print(POV.LOG.FUNC, f"{name}(")
                     for arg in args:
                         pov._print(POV.LOG.FUNC, "\t", arg, "::", type(arg).__name__)
                     for kw, val in kwargs.items():
