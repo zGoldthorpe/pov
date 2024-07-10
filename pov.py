@@ -225,38 +225,52 @@ class POV:
 
         return self
 
-    def track_as(self, funcname):
+    def track_as(self, target_name):
         """
-        Decorator wrapping functions to enable tracking
+        Decorator wrapping functions and classes to enable tracking
         """
-        def _pov_wrapper(func):
+        def _pov_wrapper(target):
 
-            self._print(POV.LOG.INFO, "Tracking function", funcname).flush()
+            if isinstance(target, type):
+                self._print(POV.LOG.INFO, "Tracking class", target_name).flush()
 
-            def _pov_tracked_function(*args, **kwargs):
-                pov = POV(
-                    stacklimit=self._stacklimit,
-                    file=self._file,
-                    _pov_depth=1
-                )
-                pov._print(POV.LOG.FUNC, f"{funcname}(")
-                for arg in args:
-                    pov._print(POV.LOG.FUNC, "\t", arg, "::", type(arg).__name__)
-                for kw, val in kwargs.items():
-                    pov._print(POV.LOG.FUNC, "\t", f"{kw}={val}", "::", type(val).__name__)
-
-                res = func(*args, **kwargs)
-                pov._print(POV.LOG.FUNC, ")", "=>", res, "::", type(res).__name__)
+                bases = (target,)
+                body = {}
+                for member, definition in target.__dict__.items():
+                    if callable(definition) and member not in ["__repr__", "__str__"]:
+                        body[member] = self.track_as(f"{target_name}.{member}")(definition)
+                    else:
+                        body[member] = definition
                 
-                return res
-            return _pov_tracked_function
+                return type(target_name, bases, body)
+
+            else:
+                self._print(POV.LOG.INFO, "Tracking function", target_name).flush()
+
+                def _pov_tracked_function(*args, **kwargs):
+                    pov = POV(
+                        stacklimit=self._stacklimit,
+                        file=self._file,
+                        _pov_depth=1
+                    )
+                    pov._print(POV.LOG.FUNC, f"{target_name}(")
+                    for arg in args:
+                        pov._print(POV.LOG.FUNC, "\t", arg, "::", type(arg).__name__)
+                    for kw, val in kwargs.items():
+                        pov._print(POV.LOG.FUNC, "\t", f"{kw}={val}", "::", type(val).__name__)
+
+                    res = target(*args, **kwargs)
+                    pov._print(POV.LOG.FUNC, ")", "=>", res, "::", type(res).__name__)
+                    
+                    return res
+                return _pov_tracked_function
         return _pov_wrapper
     
-    def track(self, func):
+    def track(self, func_or_cls):
         """
-        Direct wrapper for function tracking.
+        Direct wrapper for function or class tracking.
         """
-        return self.track_as(func.__name__)(func)
+        return self.track_as(func_or_cls.__name__)(func_or_cls)
     
     def stack(self, stacklimit:int|None):
         """
