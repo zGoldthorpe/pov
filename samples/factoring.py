@@ -4,7 +4,7 @@ Demonstrates wrapper-based class tracking
 Assumes "pov" is in PYTHONPATH
 """
 
-@__import__("pov").stack(None).track
+@__import__("pov").stack(None).track(attrs=all)
 class Factors:
 
     def __init__(self, *ns):

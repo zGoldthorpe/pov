@@ -147,7 +147,7 @@ class POV:
         """
         cls = obj if isinstance(obj, type) else type(obj)
         old_setattr = cls.__setattr__
-        self._print("Tracking", "all attrs" if all in attrs else ", ".join(attrs),
+        self._print(POV.LOG.INFO, "Tracking", "all attrs" if all in attrs else ", ".join(attrs),
                     "for", cls.__name__, f"object {hex(id(obj))}" if not isinstance(obj, type) else "objects"
                     ).flush()
         
@@ -219,34 +219,40 @@ class POV:
             cls.__getattribute__ = _pov_new_getattribute
 
         funcname = f"{cls.__name__}.{function}" if isinstance(obj, type) else f"{cls.__name__}<{hex(id(obj))}>.{function}"
-        cls._pov_fun_dict[function] = self.track_as(funcname)(func)
+        cls._pov_fun_dict[function] = self.track(func, name=funcname)
 
         return self
 
-    def track_as(self, target_name):
+    def track(self, target=None, *, name=None, attrs=()):
         """
         Decorator wrapping functions and classes to enable tracking
+        attrs:  a tuple or list of strings / the builtin `all` indicating which attributes
+                to track (cf. track_attr)
         """
-        def _pov_wrapper(target):
+        def _pov_wrapper(target_):
+            target_name = name if name else target_.__name__
 
-            if isinstance(target, type):
+            if isinstance(target_, type):
                 self._print(POV.LOG.INFO, "Tracking class", target_name).flush()
+                target_attrs = attrs if isinstance(attrs, (tuple, list)) else [attrs]
+                if target_attrs:
+                    self.track_attr(target_, *target_attrs)
 
-                bases = (target,)
+                bases = (target_,)
                 body = {}
-                for member, definition in target.__dict__.items():
+                for member, definition in target_.__dict__.items():
                     if callable(definition) and member not in ["__repr__", "__str__"]:
-                        body[member] = self.track_as(f"{target_name}.{member}")(definition)
+                        body[member] = self.track(definition, name=f"{target_name}.{member}")
                     elif isinstance(definition, property):
                         fget = definition.fget
                         fset = definition.fset
                         fdel = definition.fdel
                         if fget:
-                            fget = self.track_as(f"{target_name}.{member}<get>")(fget)
+                            fget = self.track(fget, name=f"{target_name}.{member}<get>")
                         if fset:
-                            fset = self.track_as(f"{target_name}.{member}<set>")(fset)
+                            fset = self.track(fset, name=f"{target_name}.{member}<set>")
                         if fdel:
-                            fdel = self.track_as(f"{target_name}.{member}<del>")(fdel)
+                            fdel = self.track(fdel, name=f"{target_name}.{member}<del>")
                         body[member] = property(fget, fset, fdel)
                     else:
                         body[member] = definition
@@ -263,7 +269,7 @@ class POV:
                         _pov_depth=1
                     )
                     name = target_name
-                    if isinstance(target, staticmethod):
+                    if isinstance(target_, staticmethod):
                         args = args[1:]
                         name += "<static>"
                     
@@ -273,18 +279,13 @@ class POV:
                     for kw, val in kwargs.items():
                         pov._print(POV.LOG.FUNC, "\t", f"{kw}={val}", "::", type(val).__name__)
 
-                    res = target(*args, **kwargs)
+                    res = target_(*args, **kwargs)
                     pov._print(POV.LOG.FUNC, ")", "=>", res, "::", type(res).__name__)
                     
                     return res
                 return _pov_tracked_function
-        return _pov_wrapper
-    
-    def track(self, func_or_cls):
-        """
-        Direct wrapper for function or class tracking.
-        """
-        return self.track_as(func_or_cls.__name__)(func_or_cls)
+            
+        return _pov_wrapper if target is None else _pov_wrapper(target)
     
     def stack(self, stacklimit:int|None):
         """
@@ -507,14 +508,8 @@ def track_memfun(obj, function):
     """
     return POV(_pov_depth=1).track_memfun(obj, function)
 
-def track_as(name):
-    """
-    POV.track_as interface
-    """
-    return POV(_pov_depth=1).track_as(name)
-
-def track(func):
+def track(target=None, *, name=None, attrs=()):
     """
     POV.track interface
     """
-    return POV(_pov_depth=1).track(func)
+    return POV(_pov_depth=1).track(target, name=name, attrs=attrs)
