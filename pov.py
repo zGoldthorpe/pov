@@ -241,7 +241,7 @@ class POV:
                 bases = (target_,)
                 body = {}
                 for member, definition in target_.__dict__.items():
-                    if callable(definition) and member not in ["__repr__", "__str__"]:
+                    if callable(definition) and member not in ["__repr__", "__str__", "__setattr__", "__getattr__"]:
                         body[member] = self.track(definition, name=f"{target_name}.{member}")
                     elif isinstance(definition, property):
                         fget = definition.fget
