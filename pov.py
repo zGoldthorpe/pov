@@ -33,7 +33,8 @@ class POV:
         self._log = []
         self._trace = []
         for frame, _ in reversed(list(zip(self._stack, stackrange))):
-            self._trace.append((("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})"), {}))
+            if not frame.function.startswith("_pov"):
+                self._trace.append((("[/]", f"{frame.filename}:{frame.lineno} ({frame.function})"), {}))
     
     def flush(self):
         """
@@ -140,19 +141,20 @@ class POV:
                 pov_params.update(cls_attr_dict.get(attr, {}))
                 
                 if pov_params:
-                    depth = 0
-                    for frame in inspect.stack():
-                        if frame.function.startswith("_pov"):
-                            depth += 1
-                        else:
-                            break
-                    
-                    POV(_pov_depth=depth, **pov_params)._print(
+
+                    POV(_pov_depth=1, **pov_params)._print(
                             "[a]",
                             f"{cls.__name__}.{attr} := {value}",
-                            "::",
+                            "::", type(value).__name__,
                             f"[{hex(id(self_))}]"
                         )
+                    
+                    if isinstance(value, dict):
+                        value = POVDict(value)\
+                            .stack(self._stacklimit)\
+                            .print_to(self._file)\
+                            .name(f"{cls.__name__}<{hex(id(self_))}>.{attr}")
+                  
                     
                 return old_setattr(self_, attr, value)
             
@@ -188,14 +190,8 @@ class POV:
             cls.__getattribute__ = _pov_new_getattribute
             
         def _pov_new_function(*args, **kwargs):
-            depth = 0
-            for frame in inspect.stack():
-                if frame.function.startswith("_pov"):
-                    depth += 1
-                else:
-                    break
             
-            pov = POV(stacklimit=self._stacklimit, file=self._file, _pov_depth=depth)
+            pov = POV(stacklimit=self._stacklimit, file=self._file, _pov_depth=1)
             pov._print("[f]", f"{cls.__name__}.{function}(")
             for arg in args:
                 pov._print("[f]\t", arg, "::", type(arg).__name__)
@@ -205,6 +201,7 @@ class POV:
             
             res = func(*args, **kwargs)
             pov._print("[f]", ")", "=>", res, "::", type(res).__name__)
+            return res
 
         cls._pov_fun_dict[function] = _pov_new_function
 
@@ -223,6 +220,102 @@ class POV:
         """
         self._file = file
         return self
+
+class POVDict(dict):
+    """
+    Dictionary wrapper, to track modifications and "get" key-misses
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._stacklimit = _global_stacklimit
+        self._file = _global_file
+        self._name = "POVDict"
+    
+    def stack(self, stacklimit):
+        self._stacklimit = stacklimit
+        return self
+    
+    def print_to(self, file):
+        self._file = file
+        return self
+    
+    def name(self, name):
+        self._name = name
+        return self
+
+    @property
+    def _pov(self):
+        return POV(stacklimit=self._stacklimit, file=self._file, _pov_depth=2)
+    
+    def __repr__(self):
+        return f"{self._name}{super().__repr__()}"
+
+    def __delitem__(self, key):
+        self._pov._print("[a]", "del", self._name, '[', key, '::', type(key).__name__, ']')
+        return super().__delitem__(self, key)
+    
+    def __setitem__(self, key, value):
+        self._pov._print("[a]", self._name, '[', key, '::', type(key).__name__, ']',
+                         ":=", value, "::", type(value).__name__)
+        return super().__setitem__(key, value)
+    
+    def clear(self):
+        self._pov._print("[a]", self._name, 'cleared')
+        return super().clear()
+    
+    def copy(self):
+        self._pov._print("[a]", self._name, 'copied')
+        return POVDict(super().copy())\
+                .stack(self._stacklimit)\
+                .print_to(self._file)\
+                .name(self._name + "*")
+    
+    def get(self, key, default=None, /):
+        if key not in self:
+            self._pov._print("[a]", self._name, 'get(', key, '::', type(key).__name__, ') missed',
+                             "=>", default, '::', type(default).__name__)
+        return super().get(key, default)
+    
+    def pop(self, key, default=None, /):
+        had = key in self
+        value = super().pop(key, default)
+        self._pov._print("[a]", self._name, "pop(", key, '::', type(key).__name__, ')',
+                        "<miss>" if not had else "<hit>", "=>", value, '::', type(value).__name__)
+        return value
+    
+    def popitem(self):
+        k, v = super().popitem()
+        self._pov._print("[a]", self._name, "popitem", "=>",
+                         '(', k, '::', type(k).__name__,
+                         ',', v, '::', type(v).__name__, ')')
+        return k, v
+    
+    def setdefault(self, key, default=None, /):
+        had = key in self
+        value = super().setdefault(key, default)
+        self._pov._print("[a]", self._name, "setdefault(", key, '::', type(key).__name__, ')',
+                         '=>', value, '::', type(value).__name__, "<no update>" if had else "<updated>")
+        return value
+    
+    def update(self, *args, **kwargs):
+        pov = self._pov
+        pov._print("[a]", self._name, "update:")
+        for arg in args:
+            if hasattr(arg, 'keys'):
+                for key in arg:
+                    val = arg[key]
+                    pov._print("[a]\t", key, "::", type(key).__name__, "=>", val, "::", type(val).__name__)
+            else:
+                for k, v in arg:
+                    pov._print("[a]\t", k, "::", type(k).__name__, "=>", v, "::", type(v).__name__)
+        for kw in kwargs:
+            val = kwargs[kw]
+            pov._print("[a]\t", kw, "::", type(kw).__name__, "=>", val, "::", type(val).__name__)
+        return super().update(*args, **kwargs)
+
+
+##### Front-end API #####
 
 def stack(stacklimit, globally=False):
     """

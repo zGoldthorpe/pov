@@ -23,4 +23,4 @@ def foo(x, y, z):
     # ...
 ```
 
-See `example.py` for examples.
+See `samples/` for example uses.
