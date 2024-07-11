@@ -48,7 +48,7 @@ class POV:
         """
         Flush output
         """
-        if self._log:
+        if any("[/]" not in str(cons) for cons, _, _ in self._log):
             for cons, args, kwargs in self._log:
                 kwargs["file"] = self._file
                 print(self.cons.header, cons, *args, **kwargs)
@@ -294,7 +294,7 @@ class POV:
                     
                     pov._print("func", f"{name}(")
                     for arg in args:
-                        pov._print("func", "\t", self.cons.const(repr(arg)),
+                        pov._print("func", "\t", self.cons.const(arg),
                                    "::", self.cons.obj(type(arg).__name__))
                     for kw, val in kwargs.items():
                         pov._print("func", "\t", f"{self.cons.var(kw)}={self.cons.const(val)}",
@@ -302,14 +302,13 @@ class POV:
 
                     try:
                         res = target_(*args, **kwargs)
-                        pov._print("ok", ")", "=>", self.cons.const(repr(res)),
-                                   "::", self.cons.obj(type(res).__name__))
+                        pov._print("ok", ")", "=>", self.cons.const(res),
+                                   "::", self.cons.obj(type(res).__name__)).flush()
                     except Exception as exc:
-                        pov._print("bad", ")", "><", self.cons.obj(type(exc).__name__), "::", self.cons.bad(exc))
+                        pov._print("bad", ")", "><", self.cons.obj(type(exc).__name__), "::", self.cons.bad(exc)).flush()
                         if interact_on_exception:
                             pov.interact()
                         raise exc
-                    pov.flush()
                     return res
                 return _pov_tracked_function
             
@@ -613,3 +612,30 @@ def track(target=None, *, name=None, attrs=()):
     POV.track interface
     """
     return POV(_pov_depth=1).track(target, name=name, attrs=attrs)
+
+def _pov_excepthook(exctype, value, tb):
+    pov = POV()
+    pov._log = []
+    pov.bad(pov.cons.warn("Program terminated with uncaught exception:"))
+    while tb:
+        frame = tb.tb_frame
+        co = frame.f_code
+        func = co.co_name
+        file = co.co_filename
+        line = tb.tb_lineno
+        try:
+            with open(file) as src_file:
+                src = src_file.readlines()[line-1].strip()
+        except OSError:
+            src = None
+        
+        pov.bad(f"{pov.cons.path(co.co_filename)}:{pov.cons.info(line)} ({pov.cons.func(func)})")
+        if src:
+            pov.bad(f"\t{pov.cons.expr(src)}")
+
+        tb = tb.tb_next
+    
+    pov.bad(pov.cons.obj(exctype.__name__), "::", pov.cons.bad(value))
+    exit(-1)
+
+sys.excepthook = _pov_excepthook
