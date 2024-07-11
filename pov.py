@@ -51,7 +51,7 @@ class POV:
         if self._log:
             for cons, args, kwargs in self._log:
                 kwargs["file"] = self._file
-                print(cons, *args, **kwargs)
+                print(self.cons.header, cons, *args, **kwargs)
             self._log.clear()
 
         return self
@@ -232,17 +232,21 @@ class POV:
 
         return self
 
-    def track(self, target=None, *, name=None, attrs=(), interact_on_exception=False):
+    def track(self, target=None, *, name=None, attrs=(), interact_on_exception=False, _name=None):
         """
         Decorator wrapping functions and classes to enable tracking
         attrs:  a tuple or list of strings / the builtin `all` indicating which attributes
                 to track (cf. track_attr)
         """
         def _pov_wrapper(target_):
-            target_name = name if name else target_.__name__
 
             if isinstance(target_, type):
-                self._print("info", "Tracking class", self.cons.obj(target_name)).flush()
+                if _name:
+                    target_name = _name
+                else:
+                    target_name = self.cons.obj(name if name else target_.__name__)
+                    
+                self._print("info", "Tracking class", target_name).flush()
                 target_attrs = attrs if isinstance(attrs, (tuple, list)) else [attrs]
                 if target_attrs:
                     self.track_attr(target_, *target_attrs)
@@ -258,19 +262,24 @@ class POV:
                         fdel = definition.fdel
                         fname = f"{self.cons.obj(target_name)}.{self.cons.func(member)}"
                         if fget:
-                            fget = self.track(fget, name=fname + f"<{self.cons.id('get')}>", interact_on_exception=interact_on_exception)
+                            fget = self.track(fget, _name=fname + f"<{self.cons.id('get')}>", interact_on_exception=interact_on_exception)
                         if fset:
-                            fset = self.track(fset, name=fname + f"<{self.cons.id('set')}>", interact_on_exception=interact_on_exception)
+                            fset = self.track(fset, _name=fname + f"<{self.cons.id('set')}>", interact_on_exception=interact_on_exception)
                         if fdel:
-                            fdel = self.track(fdel, name=fname + f"<{self.cons.id('del')}>", interact_on_exception=interact_on_exception)
+                            fdel = self.track(fdel, _name=fname + f"<{self.cons.id('del')}>", interact_on_exception=interact_on_exception)
                         body[member] = property(fget, fset, fdel)
                     else:
                         body[member] = definition
                 
-                return type(target_name, bases, body)
+                return type(name if name else target_.__name__, bases, body)
 
             else:
-                self._print("info", "Tracking function", self.cons.func(target_name)).flush()
+                if _name:
+                    target_name = _name
+                else:
+                    target_name = self.cons.func(name if name else target_.__name__)
+                    
+                self._print("info", "Tracking function", target_name).flush()
 
                 def _pov_tracked_function(*args, **kwargs):
                     pov = POV(
@@ -278,7 +287,7 @@ class POV:
                         file=self._file,
                         _pov_depth=1
                     )
-                    name = str(self.cons.func(target_name))
+                    name = target_name
                     if isinstance(target_, staticmethod):
                         args = args[1:]
                         name += f"<{self.cons.id('static')}>"
@@ -336,13 +345,14 @@ class POV:
 
             def __repr__(self):
                 if self._ansi_supported():
-                    return f"\033[{';47;2' if self._main else ''}{self._style}m{self._content}\033[m"
+                    return f"\033[{'1;' if self._main else ''}{self._style}m{self._content}\033[m"
                 return str(self._content)
             
             def __call__(self, content):
                 return POV.Console.Printer(content, self._style, self._pov, False)
 
         def __init__(self, pov):
+            self.header = POV.Console.Printer("POV", "41;37", pov, True)
             for attr, c, style in [
                         ("path", '/', "2"),
                         ("bad",  '-', "31"),
@@ -359,7 +369,7 @@ class POV:
                         ("expr", "35"),
                         ("obj", "36;1"),
                         ("const", "33;3"),
-                        ("id", "33;2")
+                        ("id", "33;2"),
                     ]:
                 setattr(self, attr, POV.Console.Printer(attr, style, pov, False))
         
