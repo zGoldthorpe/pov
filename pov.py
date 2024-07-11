@@ -13,25 +13,6 @@ _global_file=sys.stderr
 
 class POV:
 
-    class LOG:
-        class log_type:
-            def __init__(self, symbol, style):
-                self.symbol = symbol
-                self.style = style
-
-            def show(self, pretty):
-                if pretty and sys.platform != 'win32':
-                    return f"{self.style}{self.symbol}\033[m"
-                return self.symbol
-        
-        INFO = log_type("[i]", "\033[33m")
-        FUNC = log_type("[f]", "\033[34m")
-        ATTR = log_type("[a]", "\033[35m")
-        PATH = log_type("[/]", "\033[2m")
-        EXCP = log_type("[-]", "\033[31m")
-        GOOD = log_type("[+]", "\033[32m")
-            
-
     def __init__(self, *, stacklimit=-1, file=None, _pov_depth=0):
         """
         Initialisation parameters:
@@ -52,11 +33,12 @@ class POV:
             stacklimit = len(self._stack)
         
         self._log = []
+        self.cons = POV.Console(self)
 
         for frame in self._stack:
             if frame.function.startswith("_pov"):
                 continue
-            self._log.append((POV.LOG.PATH, (f"{frame.filename}:{frame.lineno} ({frame.function})",), {}))
+            self._log.append((self.cons.path, (f"{frame.filename}:{frame.lineno} ({frame.function})",), {}))
             stacklimit -= 1
             if stacklimit == 0:
                 break
@@ -66,11 +48,10 @@ class POV:
         """
         Flush output
         """
-        isatty = hasattr(self._file, 'isatty') and self._file.isatty()
         if self._log:
-            for log, args, kwargs in self._log:
+            for cons, args, kwargs in self._log:
                 kwargs["file"] = self._file
-                print(log.show(isatty), *args, **kwargs)
+                print(cons, *args, **kwargs)
             self._log.clear()
 
         return self
@@ -78,38 +59,62 @@ class POV:
     def __del__(self):
         self.flush()
 
-    def _print(self, log:LOG, *args, **kwargs):
-        self._log.append((log, args, kwargs))
+    def _print(self, cons:str, *args, **kwargs):
+        try:
+            cons = getattr(self.cons, cons)
+        except AttributeError:
+            self._print("warn", f"POV does not support \"{self.cons.const(cons)}\" console attribute")
+            cons = self.cons.info
+        self._log.append((cons, args, kwargs))
         return self
 
     def _get_context(self):
         frame = self._stack[0].frame
         return dict(frame.f_locals, **frame.f_globals)
 
-    def log(self, *args, value=0, **kwargs):
+    def info(self, *args, **kwargs):
         """
         Simple logger; behaves like an ordinary print.
         """
-        log = POV.LOG.GOOD if value > 0 else POV.LOG.EXCP if value < 0 else POV.LOG.INFO
-        self._print(log, *args, **kwargs)
-        return self
+        return self._print("info", *args, **kwargs)
+    
+    def ok(self, *args, **kwargs):
+        """
+        Log an 'ok' event; behaves like an ordinary print.
+        """
+        return self._print("ok", *args, **kwargs)
+
+    def bad(self, *args, **kwargs):
+        """
+        Log a 'bad' event; behaves like an ordinary print.
+        """
+        return self._print("bad", *args, **kwargs)
+    
+    def warn(self, *args, **kwargs):
+        """
+        Log a warning; behaves like an ordinary print.
+        """
+        return self._print("warn", *args, **kwargs)
     
     def view(self, *exprs : str):
         """
         View the value of various expressions.
         """
-
         context = self._get_context()
         
         for expr in exprs:
             if not isinstance(expr, str):
-                self._print(POV.LOG.GOOD, expr, sep='\t')
+                self._print("ok", expr, sep='\t')
                 continue
             try:
                 val = eval(expr, context)
-                self._print(POV.LOG.GOOD, f"\t{expr}", "=>", val, "::", type(val).__name__)
+                self._print("ok", f"\t{self.cons.expr(expr)}",
+                            "=>", self.cons.const(val),
+                            "::", self.cons.obj(type(val).__name__))
             except Exception as e:
-                self._print(POV.LOG.EXCP, f"\t{expr}", "><", type(e).__name__, "::", e)
+                self._print("bad", f"\t{self.cons.expr(expr)}",
+                            "><", self.cons.obj(type(e).__name__),
+                            "::", self.cons.bad(e))
 
         return self
 
@@ -147,8 +152,10 @@ class POV:
         """
         cls = obj if isinstance(obj, type) else type(obj)
         old_setattr = cls.__setattr__
-        self._print(POV.LOG.INFO, "Tracking", "all attrs" if all in attrs else ", ".join(attrs),
-                    "for", cls.__name__, f"object {hex(id(obj))}" if not isinstance(obj, type) else "objects"
+        attr_msg = ("all attrs",) if all in attrs else map(self.cons.var, attrs)
+        self._print("info", "Tracking", *attr_msg,
+                    "for", self.cons.obj(cls.__name__),
+                    f"object {self.cons.id(hex(id(obj)))}" if not isinstance(obj, type) else "objects"
                     ).flush()
         
         if not hasattr(cls, "_pov_attr_dict"):
@@ -171,22 +178,22 @@ class POV:
                 if pov_params:
 
                     POV(_pov_depth=1, **pov_params)._print(
-                            POV.LOG.ATTR,
-                            f"{cls.__name__}.{attr} := {value}",
-                            "::", type(value).__name__,
-                            f"[{hex(id(self_))}]"
+                            "attr",
+                            f"{self.cons.obj(cls.__name__)}.{self.cons.var(attr)} := {self.cons.const(value)}",
+                            "::", self.cons.obj(type(value).__name__),
+                            f"[{self.cons.id(hex(id(self_)))}]"
                         )
                     
                     if isinstance(value, dict):
                         value = POVDict(value)\
                             .stack(self._stacklimit)\
                             .print_to(self._file)\
-                            .name(f"{cls.__name__}<{hex(id(self_))}>.{attr}")
+                            .name(f"{self.cons.obj(cls.__name__)}<{self.cons.id(hex(id(self_)))}>.{self.cons.var(attr)}")
                     elif isinstance(value, list):
                         value = POVList(value)\
                             .stack(self._stacklimit)\
                             .print_to(self._file)\
-                            .name(f"{cls.__name__}<{hex(id(self_))}>.{attr}")
+                            .name(f"{self.cons.obj(cls.__name__)}<{self.cons.id(hex(id(self_)))}>.{self.cons.var(attr)}")
                     
                 return old_setattr(self_, attr, value)
             
@@ -218,7 +225,9 @@ class POV:
                 return _pov_bind_getattribute
             cls.__getattribute__ = _pov_new_getattribute
 
-        funcname = f"{cls.__name__}.{function}" if isinstance(obj, type) else f"{cls.__name__}<{hex(id(obj))}>.{function}"
+        funcname = f"{self.cons.obj(cls.__name__)}.{self.cons.func(function)}" \
+                if isinstance(obj, type) else \
+                f"{self.cons.obj(cls.__name__)}<{self.cons.id(hex(id(obj)))}>.{self.cons.func(function)}"
         cls._pov_fun_dict[function] = self.track(func, name=funcname)
 
         return self
@@ -233,7 +242,7 @@ class POV:
             target_name = name if name else target_.__name__
 
             if isinstance(target_, type):
-                self._print(POV.LOG.INFO, "Tracking class", target_name).flush()
+                self._print("info", "Tracking class", self.cons.obj(target_name)).flush()
                 target_attrs = attrs if isinstance(attrs, (tuple, list)) else [attrs]
                 if target_attrs:
                     self.track_attr(target_, *target_attrs)
@@ -247,12 +256,13 @@ class POV:
                         fget = definition.fget
                         fset = definition.fset
                         fdel = definition.fdel
+                        fname = f"{self.cons.obj(target_name)}.{self.cons.func(member)}"
                         if fget:
-                            fget = self.track(fget, name=f"{target_name}.{member}<get>")
+                            fget = self.track(fget, name=fname + f"<{self.cons.id('get')}>")
                         if fset:
-                            fset = self.track(fset, name=f"{target_name}.{member}<set>")
+                            fset = self.track(fset, name=fname + f"<{self.cons.id('set')}>")
                         if fdel:
-                            fdel = self.track(fdel, name=f"{target_name}.{member}<del>")
+                            fdel = self.track(fdel, name=fname + f"<{self.cons.id('del')}>")
                         body[member] = property(fget, fset, fdel)
                     else:
                         body[member] = definition
@@ -260,7 +270,7 @@ class POV:
                 return type(target_name, bases, body)
 
             else:
-                self._print(POV.LOG.INFO, "Tracking function", target_name).flush()
+                self._print("info", "Tracking function", self.cons.func(target_name)).flush()
 
                 def _pov_tracked_function(*args, **kwargs):
                     pov = POV(
@@ -268,19 +278,21 @@ class POV:
                         file=self._file,
                         _pov_depth=1
                     )
-                    name = target_name
+                    name = str(self.cons.func(target_name))
                     if isinstance(target_, staticmethod):
                         args = args[1:]
-                        name += "<static>"
+                        name += f"<{self.cons.id('static')}>"
                     
-                    pov._print(POV.LOG.FUNC, f"{name}(")
+                    pov._print("func", f"{name}(")
                     for arg in args:
-                        pov._print(POV.LOG.FUNC, "\t", arg, "::", type(arg).__name__)
+                        pov._print("func", "\t", self.cons.const(arg),
+                                   "::", self.cons.obj(type(arg).__name__))
                     for kw, val in kwargs.items():
-                        pov._print(POV.LOG.FUNC, "\t", f"{kw}={val}", "::", type(val).__name__)
+                        pov._print("func", "\t", f"{self.cons.var(kw)}={self.cons.const(val)}",
+                                   "::", self.cons.obj(type(val).__name__))
 
                     res = target_(*args, **kwargs)
-                    pov._print(POV.LOG.FUNC, ")", "=>", res, "::", type(res).__name__)
+                    pov._print("func", ")", "=>", self.cons.const(res), "::", self.cons.obj(type(res).__name__))
                     
                     return res
                 return _pov_tracked_function
@@ -301,6 +313,53 @@ class POV:
         self._file = file
         return self
 
+    ### console ANSI formatting class ###
+    class Console:
+
+        class Printer:
+
+            def __init__(self, content, style, pov, main):
+                self._content = content
+                self._style = style
+                self._pov = pov
+                self._main = main
+            
+            def _ansi_supported(self) -> bool:
+                return sys.platform != 'win32' and hasattr(self._pov._file, "isatty") and self._pov._file.isatty()
+
+            def __repr__(self):
+                if self._ansi_supported():
+                    return f"\033[{self._style}{';7' if self._main else ''}m{self._content}\033[m"
+                return str(self._content)
+            
+            def __call__(self, content):
+                return POV.Console.Printer(content, self._style, self._pov, False)
+
+        def __init__(self, pov):
+            for attr, c, style in [
+                        ("path", '/', "2"),
+                        ("bad",  '-', "31"),
+                        ("ok",   '+', "32"),
+                        ("warn", '!', "33"),
+                        ("func", 'f', "34"),
+                        ("attr", 'a', "35"),
+                        ("info", 'i', "36"),
+                        ("norm", ' ', "37")
+                    ]:
+                setattr(self, attr, POV.Console.Printer(f"[{c}]", style, pov, True))
+            for attr, style in [
+                        ("var", "35;3"),
+                        ("expr", "35"),
+                        ("obj", "36;1"),
+                        ("const", "33;3"),
+                        ("id", "33;2")
+                    ]:
+                setattr(self, attr, POV.Console.Printer(attr, style, pov, False))
+        
+
+
+##### POV data structure tracking #####
+
 class POVObj:
     """
     Base class for wrapping Python data structures
@@ -310,6 +369,7 @@ class POVObj:
         self._file = _global_file
         self._name = name
         self._base_type = base_type
+        self.cons = self._pov.cons
         
     def stack(self, stacklimit):
         self._stacklimit = stacklimit
@@ -328,7 +388,7 @@ class POVObj:
         return POV(stacklimit=self._stacklimit, file=self._file, _pov_depth=2)
     
     def __repr__(self):
-        return f"{self._name}{self._base_type.__repr__(self)}"
+        return f"{self._name}{self.cons.expr(self._base_type.__repr__(self))}"
 
 class POVDict(POVObj, dict):
     """
@@ -340,64 +400,68 @@ class POVDict(POVObj, dict):
         POVObj.__init__(self, "POVDict", dict)
     
     def __delitem__(self, key, /):
-        self._pov._print(POV.LOG.ATTR, "del", self._name, '[', key, "::", type(key).__name__, ']')
+        self._pov._print("attr", "del", self._name, '[', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ']')
         return dict.__delitem__(self, key)
     
     def __setitem__(self, key, value, /):
-        self._pov._print(POV.LOG.ATTR, self._name, '[', key, "::", type(key).__name__, ']',
-                         ":=", value, "::", type(value).__name__)
+        self._pov._print("attr", self._name, '[', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ']',
+                         ":=", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
         return dict.__setitem__(self, key, value)
     
     def __ior__(self, rhs, /):
         pov = self._pov
-        pov._print(POV.LOG.ATTR, self._name, "|=")
+        pov._print("attr", self._name, "|=")
         rhs = dict(rhs)
         for k, v in rhs:
-            pov._print(POV.LOG.ATTR, "\t", k, "::", type(k).__name__, "=>", v, "::", type(v).__name__)
+            pov._print("attr", "\t", self.cons.var(k), "::", self.cons.obj(type(k).__name__), "=>", self.cons.const(v), "::", self.cons.obj(type(v).__name__))
         return dict.__ior__(self, rhs)
 
     def clear(self, /):
-        self._pov._print(POV.LOG.ATTR, self._name, 'cleared')
+        self._pov._print("attr", self._name, 'cleared')
         return dict.clear(self)
     
     def get(self, key, default=None, /):
         if key not in self:
-            self._pov._print(POV.LOG.ATTR, self._name, 'get(', key, "::", type(key).__name__, ') missed',
-                             "=>", default, "::", type(default).__name__)
+            self._pov._print("attr", self._name, 'get(', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ') missed',
+                             "=>", self.cons.const(default), "::", self.cons.obj(type(default).__name__))
         return dict.get(self, key, default)
     
     def pop(self, key, default=None, /):
         had = key in self
         value = dict.pop(self, key, default)
-        self._pov._print(POV.LOG.ATTR, self._name, "pop(", key, "::", type(key).__name__, ')',
-                        "<miss>" if not had else "<hit>", "=>", value, "::", type(value).__name__)
+        self._pov._print("attr", self._name, "pop(", self.cons.var(key), "::", self.cons.obj(type(key).__name__), ')',
+                        self.cons.info("<miss>" if not had else "<hit>"),
+                        "=>", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
         return value
     
     def popitem(self, /):
         k, v = dict.popitem(self)
-        self._pov._print(POV.LOG.ATTR, self._name, "popitem", "=>",
-                         '(', k, "::", type(k).__name__,
-                         ',', v, "::", type(v).__name__, ')')
+        self._pov._print("attr", self._name, "popitem", "=>",
+                         '(', self.cons.var(k), "::", self.cons.obj(type(k).__name__),
+                         ',', self.cons.const(v), "::", self.cons.obj(type(v).__name__), ')')
         return k, v
     
     def setdefault(self, key, default=None, /):
         had = key in self
         value = dict.setdefault(self, key, default)
-        self._pov._print(POV.LOG.ATTR, self._name, "setdefault(", key, "::", type(key).__name__, ')',
-                         '=>', value, "::", type(value).__name__, "<no update>" if had else "<updated>")
+        self._pov._print("attr", self._name, "setdefault(", self.cons.var(key), "::", self.cons.obj(type(key).__name__), ')',
+                         '=>', self.cons.const(value), "::", self.cons.obj(type(value).__name__),
+                         self.cons.info("<no update>" if had else "<updated>"))
         return value
     
     def update(self, *args, **kwargs):
         pov = self._pov
-        pov._print(POV.LOG.ATTR, self._name, "update:")
+        pov._print("attr", self._name, "update:")
         for arg in args:
             arg = dict(arg)
             for key in arg:
                 val = arg[key]
-                pov._print(POV.LOG.ATTR, "\t", key, "::", type(key).__name__, "=>", val, "::", type(val).__name__)
+                pov._print("attr", "\t", self.cons.var(key), "::", self.cons.obj(type(key).__name__),
+                           "=>", self.cons.const(val), "::", self.cons.obj(type(val).__name__))
         for kw in kwargs:
             val = kwargs[kw]
-            pov._print(POV.LOG.ATTR, "\t", kw, "::", type(kw).__name__, "=>", val, "::", type(val).__name__)
+            pov._print("attr", "\t", self.cons.var(kw), "::", self.cons.obj(type(kw).__name__),
+                       "=>", self.cons.const(val), "::", self.cons.obj(type(val).__name__))
         return dict.update(self, *args, **kwargs)
 
 class POVList(POVObj, list):
@@ -407,54 +471,55 @@ class POVList(POVObj, list):
         POVObj.__init__(self, "POVList", list)
     
     def __delitem__(self, key, /):
-        self._pov._print(POV.LOG.ATTR, "del", self._name, '[', key, "::", type(key).__name__, ']')
+        self._pov._print("attr", "del", self._name, f"[{self.cons.const(key)}]")
         return list.__delitem__(self, key)
     
     def __iadd__(self, rhs, /):
         rhs = list(rhs)
         pov = self._pov
-        pov._print(POV.LOG.ATTR, self._name, "+=")
+        pov._print("attr", self._name, "+=")
         for it in rhs:
-            pov._print(POV.LOG.ATTR, "\t", it, "::", type(it).__name__)
+            pov._print("attr", "\t", self.cons.const(it), "::", self.cons.obj(type(it).__name__))
         return list.__iadd__(self, rhs)
     
     def __imul__(self, mul, /):
-        self._pov._print(POV.LOG.ATTR, self._name, "*=", mul, "::", type(mul).__name__)
+        self._pov._print("attr", self._name, "*=", self.cons.const(mul), "::", self.cons.obj(type(mul).__name__))
         return list.__imul__(self, mul)
     
     def __setitem__(self, index, value, /):
-        self._pov._print(POV.LOG.ATTR, self._name,
-                        f"[{index}]",
-                        ":=", value, "::", type(value).__name__)
+        self._pov._print("attr", self._name,
+                        f"[{self.cons.const(index)}]",
+                        ":=", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
         return list.__setitem__(self, index, value)
     
     def append(self, obj, /):
-        self._pov._print(POV.LOG.ATTR, self._name, "append(", obj, "::", type(obj).__name__, ")")
+        self._pov._print("attr", self._name, "append(", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__), ")")
         return list.append(self, obj)
 
     def clear(self, /):
-        self._pov._print(POV.LOG.ATTR, self._name, "cleared")
+        self._pov._print("attr", self._name, "cleared")
         return list.clear(self)
     
     def insert(self, index, obj, /):
-        self._pov._print(POV.LOG.ATTR, self._name, "insert", obj, "::", type(obj).__name__, "at index", index)
+        self._pov._print("attr", self._name, "insert", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__),
+                         "at index", self.cons.const(index))
         return list.insert(self, index, obj)
     
     def pop(self, index=-1, /):
         value = list.pop(self, index)
-        self._pov._print(POV.LOG.ATTR, self._name, f"pop({index})", "=>", value, "::", type(value).__name__)
+        self._pov._print("attr", self._name, f"pop({self.cons.const(index)})", "=>", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
         return value
     
     def remove(self, obj, /):
-        self._pov._print(POV.LOG.ATTR, self._name, "removing", obj, "::", type(obj).__name__)
+        self._pov._print("attr", self._name, "removing", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__))
         return list.remove(self, obj)
 
     def reverse(self, /):
-        self._pov._print(POV.LOG.ATTR, self._name, "in-place reversal")
+        self._pov._print("attr", self._name, "in-place reversal")
         return list.reverse(self)
     
     def sort(self, *, key=None, reverse=False):
-        self._pov._print(POV.LOG.ATTR, self._name, "sorted")
+        self._pov._print("attr", self._name, "sorted")
         return list.sort(self, key=key, reverse=reverse)
 
 ##### Front-end API #####
@@ -478,11 +543,29 @@ def print_to(file, globally=False):
         _global_file = file
     return POV(file=file, _pov_depth=1)
 
-def log(*args, value=0, **kwargs):
+def info(*args, value=0, **kwargs):
     """
-    POV.log interface
+    POV.info interface
     """
-    return POV(_pov_depth=1).log(*args, value=value, **kwargs)
+    return POV(_pov_depth=1).info(*args, value=value, **kwargs)
+
+def ok(*args, value=0, **kwargs):
+    """
+    POV.ok interface
+    """
+    return POV(_pov_depth=1).ok(*args, value=value, **kwargs)
+
+def bad(*args, value=0, **kwargs):
+    """
+    POV.bad interface
+    """
+    return POV(_pov_depth=1).bad(*args, value=value, **kwargs)
+
+def warn(*args, value=0, **kwargs):
+    """
+    POV.warn interface
+    """
+    return POV(_pov_depth=1).warn(*args, value=value, **kwargs)
 
 def view(*exprs):
     """
