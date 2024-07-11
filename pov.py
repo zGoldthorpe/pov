@@ -218,7 +218,7 @@ class POV:
                             f"{self.cons.obj(cls.__name__)}.{self.cons.var(attr)} := {self.cons.const(value)}",
                             "::", self.cons.obj(type(value).__name__),
                             f"[{self.cons.id(hex(id(self_)))}]"
-                        )
+                        ).flush()
                     
                     if isinstance(value, dict):
                         value = POVDict(value)\
@@ -422,6 +422,7 @@ class POVObj:
         self._name = name
         self._base_type = base_type
         self.cons = self._pov.cons
+        self._pov.info(f"Intercepting initialisation of {self.cons.obj(base_type.__name__)} [{self.cons.id(hex(id(self)))}]").flush()
         
     def stack(self, stacklimit):
         self._stacklimit = stacklimit
@@ -433,6 +434,9 @@ class POVObj:
     
     def name(self, name):
         self._name = name
+        pov = self._pov
+        pov._log = []
+        pov.info(f"{self.cons.obj(self._base_type.__name__)} interceptor [{self.cons.id(hex(id(self)))}]:", name).flush()
         return self
     
     @property
