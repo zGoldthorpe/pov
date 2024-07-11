@@ -76,25 +76,25 @@ class POV:
         """
         Simple logger; behaves like an ordinary print.
         """
-        return self._print("info", *args, **kwargs)
+        return self._print("info", *args, **kwargs).flush()
     
     def ok(self, *args, **kwargs):
         """
         Log an 'ok' event; behaves like an ordinary print.
         """
-        return self._print("ok", *args, **kwargs)
+        return self._print("ok", *args, **kwargs).flush()
 
     def bad(self, *args, **kwargs):
         """
         Log a 'bad' event; behaves like an ordinary print.
         """
-        return self._print("bad", *args, **kwargs)
+        return self._print("bad", *args, **kwargs).flush()
     
     def warn(self, *args, **kwargs):
         """
         Log a warning; behaves like an ordinary print.
         """
-        return self._print("warn", *args, **kwargs)
+        return self._print("warn", *args, **kwargs).flush()
     
     def view(self, *exprs : str):
         """
@@ -116,7 +116,7 @@ class POV:
                             "><", self.cons.obj(type(e).__name__),
                             "::", self.cons.bad(e))
 
-        return self
+        return self.flush()
 
     def interact(self, normal_exit=False, normal_quit=True):
         """
@@ -156,7 +156,7 @@ class POV:
         self._print("info", "Tracking", *attr_msg,
                     "for", self.cons.obj(cls.__name__),
                     f"object {self.cons.id(hex(id(obj)))}" if not isinstance(obj, type) else "objects"
-                    ).flush()
+                    )
         
         if not hasattr(cls, "_pov_attr_dict"):
             cls._pov_attr_dict = {cls : {}}
@@ -204,7 +204,7 @@ class POV:
         for attr in attrs:
             attr_dict[attr] = pov_params
 
-        return self
+        return self.flush()
 
     def track_memfun(self, obj:type|object, function:str):
         """
@@ -255,7 +255,7 @@ class POV:
                 body = {}
                 for member, definition in target_.__dict__.items():
                     if callable(definition) and member not in ["__repr__", "__str__", "__setattr__", "__getattr__"]:
-                        body[member] = self.track(definition, name=f"{target_name}.{member}")
+                        body[member] = self.track(definition, _name=f"{target_name}.{self.cons.func(member)}")
                     elif isinstance(definition, property):
                         fget = definition.fget
                         fset = definition.fset
@@ -278,7 +278,7 @@ class POV:
                     target_name = _name
                 else:
                     target_name = self.cons.func(name if name else target_.__name__)
-                    
+
                 self._print("info", "Tracking function", target_name).flush()
 
                 def _pov_tracked_function(*args, **kwargs):
@@ -287,14 +287,14 @@ class POV:
                         file=self._file,
                         _pov_depth=1
                     )
-                    name = target_name
+                    name = str(target_name)
                     if isinstance(target_, staticmethod):
                         args = args[1:]
                         name += f"<{self.cons.id('static')}>"
                     
                     pov._print("func", f"{name}(")
                     for arg in args:
-                        pov._print("func", "\t", self.cons.const(arg),
+                        pov._print("func", "\t", self.cons.const(repr(arg)),
                                    "::", self.cons.obj(type(arg).__name__))
                     for kw, val in kwargs.items():
                         pov._print("func", "\t", f"{self.cons.var(kw)}={self.cons.const(val)}",
@@ -302,14 +302,14 @@ class POV:
 
                     try:
                         res = target_(*args, **kwargs)
-                        pov._print("ok", ")", "=>", self.cons.const(res),
+                        pov._print("ok", ")", "=>", self.cons.const(repr(res)),
                                    "::", self.cons.obj(type(res).__name__))
                     except Exception as exc:
                         pov._print("bad", ")", "><", self.cons.obj(type(exc).__name__), "::", self.cons.bad(exc))
                         if interact_on_exception:
                             pov.interact()
                         raise exc
-                    
+                    pov.flush()
                     return res
                 return _pov_tracked_function
             
