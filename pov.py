@@ -96,7 +96,7 @@ class POV:
         """
         return self._print("warn", *args, **kwargs).flush()
     
-    def view(self, *exprs : str):
+    def view(self, *exprs:str):
         """
         View the value of various expressions.
         """
@@ -104,7 +104,7 @@ class POV:
         
         for expr in exprs:
             if not isinstance(expr, str):
-                self._print("ok", expr, sep='\t')
+                self._print("ok", self.cons.const(expr), sep='\t')
                 continue
             try:
                 val = eval(expr, context)
@@ -117,6 +117,42 @@ class POV:
                             "::", self.cons.bad(e))
 
         return self.flush()
+    
+    def check(self, *exprs:str, exit_on_failure=False, interact_on_failure=False):
+        """
+        Check if expressions evaluate (or cast) to True.
+        """
+        context = self._get_context()
+
+        all_true = True
+        for expr in exprs:
+            if not isinstance(expr, str):
+                if not expr:
+                    all_true = False
+                    self._print("warn", self.cons.const(expr))
+                else:
+                    self._print("ok", self.cons.const(expr))
+            else:
+                try:
+                    val = eval(expr, context)
+                    if not val:
+                        all_true = False
+                        self._print("warn", self.cons.expr(expr), "=>", self.cons.const(val))
+                    else:
+                        self._print("ok", self.cons.expr(expr), "=>", self.cons.const(val))
+                except Exception as e:
+                    all_true = False
+                    self._print("bad", self.cons.expr(expr), "><", self.cons.obj(type(e).__name__), "::", self.cons.bad(e))
+        
+        if not all_true:
+            self._print("warn", self.cons.bad("Some assertions failed."))
+            if interact_on_failure:
+                self.interact()
+            if exit_on_failure:
+                self._print("warn", "Exiting due to failed assertions...")
+                exit(1)
+        else:
+            self._print("ok", self.cons.good("All checks passed."))
 
     def interact(self, normal_exit=False, normal_quit=True):
         """
@@ -593,6 +629,12 @@ def view(*exprs):
     """
     return POV(_pov_depth=1).view(*exprs)
 
+def check(*exprs, exit_on_failure=False, interact_on_failure=False):
+    """
+    POV.check interface
+    """
+    return POV(_pov_depth=1).check(*exprs, exit_on_failure=exit_on_failure, interact_on_failure=interact_on_failure)
+
 def interact(normal_exit=False, normal_quit=True):
     """
     POV.interact interface
@@ -627,17 +669,18 @@ def _pov_excepthook(exctype, value, tb):
         func = co.co_name
         file = co.co_filename
         line = tb.tb_lineno
-        src = None
-        try:
-            if file != __file__:
+
+        if file != __file__:
+
+            try:
                 with open(file) as src_file:
                     src = src_file.readlines()[line-1].strip()
-        except OSError:
-            pass
-        
-        pov.bad(f"{pov.cons.path(co.co_filename)}:{pov.cons.info(line)} ({pov.cons.func(func)})")
-        if src:
-            pov.bad(f"\t{pov.cons.expr(src)}")
+            except OSError:
+                src = None
+            
+            pov.bad(f"{pov.cons.path(co.co_filename)}:{pov.cons.info(line)} ({pov.cons.func(func)})")
+            if src:
+                pov.bad(f"\t{pov.cons.expr(src)}")
 
         tb = tb.tb_next
     
