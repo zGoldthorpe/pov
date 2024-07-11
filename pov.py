@@ -36,9 +36,9 @@ class POV:
         self.cons = POV.Console(self)
 
         for frame in self._stack:
-            if frame.function.startswith("_pov"):
+            if frame.filename == __file__:
                 continue
-            self._log.append((self.cons.path, (f"{frame.filename}:{frame.lineno} ({frame.function})",), {}))
+            self._log.append((self.cons.path, (f"{self.cons.path(frame.filename)}:{self.cons.info(frame.lineno)} ({self.cons.func(frame.function)})",), {}))
             stacklimit -= 1
             if stacklimit == 0:
                 break
@@ -232,7 +232,7 @@ class POV:
 
         return self
 
-    def track(self, target=None, *, name=None, attrs=()):
+    def track(self, target=None, *, name=None, attrs=(), interact_on_exception=False):
         """
         Decorator wrapping functions and classes to enable tracking
         attrs:  a tuple or list of strings / the builtin `all` indicating which attributes
@@ -258,11 +258,11 @@ class POV:
                         fdel = definition.fdel
                         fname = f"{self.cons.obj(target_name)}.{self.cons.func(member)}"
                         if fget:
-                            fget = self.track(fget, name=fname + f"<{self.cons.id('get')}>")
+                            fget = self.track(fget, name=fname + f"<{self.cons.id('get')}>", interact_on_exception=interact_on_exception)
                         if fset:
-                            fset = self.track(fset, name=fname + f"<{self.cons.id('set')}>")
+                            fset = self.track(fset, name=fname + f"<{self.cons.id('set')}>", interact_on_exception=interact_on_exception)
                         if fdel:
-                            fdel = self.track(fdel, name=fname + f"<{self.cons.id('del')}>")
+                            fdel = self.track(fdel, name=fname + f"<{self.cons.id('del')}>", interact_on_exception=interact_on_exception)
                         body[member] = property(fget, fset, fdel)
                     else:
                         body[member] = definition
@@ -291,8 +291,15 @@ class POV:
                         pov._print("func", "\t", f"{self.cons.var(kw)}={self.cons.const(val)}",
                                    "::", self.cons.obj(type(val).__name__))
 
-                    res = target_(*args, **kwargs)
-                    pov._print("func", ")", "=>", self.cons.const(res), "::", self.cons.obj(type(res).__name__))
+                    try:
+                        res = target_(*args, **kwargs)
+                        pov._print("ok", ")", "=>", self.cons.const(res),
+                                   "::", self.cons.obj(type(res).__name__))
+                    except Exception as exc:
+                        pov._print("bad", ")", "><", self.cons.obj(type(exc).__name__), "::", self.cons.bad(exc))
+                        if interact_on_exception:
+                            pov.interact()
+                        raise exc
                     
                     return res
                 return _pov_tracked_function
@@ -329,7 +336,7 @@ class POV:
 
             def __repr__(self):
                 if self._ansi_supported():
-                    return f"\033[{self._style}{';7' if self._main else ''}m{self._content}\033[m"
+                    return f"\033[{';47;2' if self._main else ''}{self._style}m{self._content}\033[m"
                 return str(self._content)
             
             def __call__(self, content):
