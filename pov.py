@@ -416,12 +416,12 @@ class POVDict(POVObj, dict):
         POVObj.__init__(self, "POVDict", dict)
     
     def __delitem__(self, key, /):
-        self._pov._print("attr", "del", self._name, '[', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ']')
+        self._pov._print("attr", "del", self._name, '[', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ']').flush()
         return dict.__delitem__(self, key)
     
     def __setitem__(self, key, value, /):
         self._pov._print("attr", self._name, '[', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ']',
-                         ":=", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
+                         ":=", self.cons.const(value), "::", self.cons.obj(type(value).__name__)).flush()
         return dict.__setitem__(self, key, value)
     
     def __ior__(self, rhs, /):
@@ -429,7 +429,9 @@ class POVDict(POVObj, dict):
         pov._print("attr", self._name, "|=")
         rhs = dict(rhs)
         for k, v in rhs:
-            pov._print("attr", "\t", self.cons.var(k), "::", self.cons.obj(type(k).__name__), "=>", self.cons.const(v), "::", self.cons.obj(type(v).__name__))
+            pov._print("attr", "\t", self.cons.var(k), "::", self.cons.obj(type(k).__name__),
+                       "=>", self.cons.const(v), "::", self.cons.obj(type(v).__name__))
+        pov.flush()
         return dict.__ior__(self, rhs)
 
     def clear(self, /):
@@ -439,7 +441,7 @@ class POVDict(POVObj, dict):
     def get(self, key, default=None, /):
         if key not in self:
             self._pov._print("attr", self._name, 'get(', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ') missed',
-                             "=>", self.cons.const(default), "::", self.cons.obj(type(default).__name__))
+                             "=>", self.cons.const(default), "::", self.cons.obj(type(default).__name__)).flush()
         return dict.get(self, key, default)
     
     def pop(self, key, default=None, /):
@@ -447,14 +449,14 @@ class POVDict(POVObj, dict):
         value = dict.pop(self, key, default)
         self._pov._print("attr", self._name, "pop(", self.cons.var(key), "::", self.cons.obj(type(key).__name__), ')',
                         self.cons.info("<miss>" if not had else "<hit>"),
-                        "=>", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
+                        "=>", self.cons.const(value), "::", self.cons.obj(type(value).__name__)).flush()
         return value
     
     def popitem(self, /):
         k, v = dict.popitem(self)
         self._pov._print("attr", self._name, "popitem", "=>",
                          '(', self.cons.var(k), "::", self.cons.obj(type(k).__name__),
-                         ',', self.cons.const(v), "::", self.cons.obj(type(v).__name__), ')')
+                         ',', self.cons.const(v), "::", self.cons.obj(type(v).__name__), ')').flush()
         return k, v
     
     def setdefault(self, key, default=None, /):
@@ -462,7 +464,7 @@ class POVDict(POVObj, dict):
         value = dict.setdefault(self, key, default)
         self._pov._print("attr", self._name, "setdefault(", self.cons.var(key), "::", self.cons.obj(type(key).__name__), ')',
                          '=>', self.cons.const(value), "::", self.cons.obj(type(value).__name__),
-                         self.cons.info("<no update>" if had else "<updated>"))
+                         self.cons.info("<no update>" if had else "<updated>")).flush()
         return value
     
     def update(self, *args, **kwargs):
@@ -478,6 +480,7 @@ class POVDict(POVObj, dict):
             val = kwargs[kw]
             pov._print("attr", "\t", self.cons.var(kw), "::", self.cons.obj(type(kw).__name__),
                        "=>", self.cons.const(val), "::", self.cons.obj(type(val).__name__))
+        pov.flush()
         return dict.update(self, *args, **kwargs)
 
 class POVList(POVObj, list):
@@ -487,7 +490,7 @@ class POVList(POVObj, list):
         POVObj.__init__(self, "POVList", list)
     
     def __delitem__(self, key, /):
-        self._pov._print("attr", "del", self._name, f"[{self.cons.const(key)}]")
+        self._pov._print("attr", "del", self._name, f"[{self.cons.const(key)}]").flush()
         return list.__delitem__(self, key)
     
     def __iadd__(self, rhs, /):
@@ -495,47 +498,48 @@ class POVList(POVObj, list):
         pov = self._pov
         pov._print("attr", self._name, "+=")
         for it in rhs:
-            pov._print("attr", "\t", self.cons.const(it), "::", self.cons.obj(type(it).__name__))
+            pov._print("attr", "\t", self.cons.const(it), "::", self.cons.obj(type(it).__name__)).flush()
         return list.__iadd__(self, rhs)
     
     def __imul__(self, mul, /):
-        self._pov._print("attr", self._name, "*=", self.cons.const(mul), "::", self.cons.obj(type(mul).__name__))
+        self._pov._print("attr", self._name, "*=", self.cons.const(mul), "::", self.cons.obj(type(mul).__name__)).flush()
         return list.__imul__(self, mul)
     
     def __setitem__(self, index, value, /):
         self._pov._print("attr", self._name,
                         f"[{self.cons.const(index)}]",
-                        ":=", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
+                        ":=", self.cons.const(value), "::", self.cons.obj(type(value).__name__)).flush()
         return list.__setitem__(self, index, value)
     
     def append(self, obj, /):
-        self._pov._print("attr", self._name, "append(", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__), ")")
+        self._pov._print("attr", self._name, "append(", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__), ")").flush()
         return list.append(self, obj)
 
     def clear(self, /):
-        self._pov._print("attr", self._name, "cleared")
+        self._pov._print("attr", self._name, "cleared").flush()
         return list.clear(self)
     
     def insert(self, index, obj, /):
         self._pov._print("attr", self._name, "insert", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__),
-                         "at index", self.cons.const(index))
+                         "at index", self.cons.const(index)).flush()
         return list.insert(self, index, obj)
     
     def pop(self, index=-1, /):
         value = list.pop(self, index)
-        self._pov._print("attr", self._name, f"pop({self.cons.const(index)})", "=>", self.cons.const(value), "::", self.cons.obj(type(value).__name__))
+        self._pov._print("attr", self._name, f"pop({self.cons.const(index)})",
+                         "=>", self.cons.const(value), "::", self.cons.obj(type(value).__name__)).flush()
         return value
     
     def remove(self, obj, /):
-        self._pov._print("attr", self._name, "removing", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__))
+        self._pov._print("attr", self._name, "removing", self.cons.const(obj), "::", self.cons.obj(type(obj).__name__)).flush()
         return list.remove(self, obj)
 
     def reverse(self, /):
-        self._pov._print("attr", self._name, "in-place reversal")
+        self._pov._print("attr", self._name, "in-place reversal").flush()
         return list.reverse(self)
     
     def sort(self, *, key=None, reverse=False):
-        self._pov._print("attr", self._name, "sorted")
+        self._pov._print("attr", self._name, "sorted").flush()
         return list.sort(self, key=key, reverse=reverse)
 
 ##### Front-end API #####
@@ -638,4 +642,5 @@ def _pov_excepthook(exctype, value, tb):
     pov.bad(pov.cons.obj(exctype.__name__), "::", pov.cons.bad(value))
     exit(-1)
 
+sys.__excepthook__ = _pov_excepthook
 sys.excepthook = _pov_excepthook
