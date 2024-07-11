@@ -620,18 +620,20 @@ def track(target=None, *, name=None, attrs=()):
 def _pov_excepthook(exctype, value, tb):
     pov = POV()
     pov._log = []
-    pov.bad(pov.cons.warn("Program terminated with uncaught exception:"))
+    pov.bad(pov.cons.header("Program terminated with uncaught exception:"))
     while tb:
         frame = tb.tb_frame
         co = frame.f_code
         func = co.co_name
         file = co.co_filename
         line = tb.tb_lineno
+        src = None
         try:
-            with open(file) as src_file:
-                src = src_file.readlines()[line-1].strip()
+            if file != __file__:
+                with open(file) as src_file:
+                    src = src_file.readlines()[line-1].strip()
         except OSError:
-            src = None
+            pass
         
         pov.bad(f"{pov.cons.path(co.co_filename)}:{pov.cons.info(line)} ({pov.cons.func(func)})")
         if src:
