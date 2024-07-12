@@ -392,7 +392,7 @@ class POV:
                 def dump(printer, bars, *args, **kwargs):
                     kwargs["file"] = _global_file
                     kwargs["end"] = '\n'
-                    print(POVPrint.head(), printer, bars, *args, **kwargs)
+                    print(POVPrint.head(), printer, POVPrint.id(os.getpid()), bars, *args, **kwargs)
                 
                 for stack, bars, lines in stacked_lines:
                     bars = "".join(map(repr, bars))
