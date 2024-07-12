@@ -9,7 +9,7 @@ import inspect
 import os
 import sys
 
-_global_file=sys.stderr
+_global_file = sys.stderr
 
 class POV:
 
@@ -163,11 +163,11 @@ class POV:
         """
         cls = obj if isinstance(obj, type) else type(obj)
         old_setattr = cls.__setattr__
-        attr_msg = ("all attrs",) if all in attrs else POVPrint.join(", ", *attrs, cons=POVPrint.var)
+        attr_msg = "all attrs" if all in attrs else POVPrint.join(", ", *attrs, cons=POVPrint.var)
 
         with POVPrint.info() as printer:
             printer.print("Tracking", attr_msg, "for",
-                    POVPrint.type(cls) if not isinstance(obj, type) else POVPrint.instance(obj))
+                    POVPrint.type(cls) if isinstance(obj, type) else POVPrint.instance(obj))
         
         if not hasattr(cls, "_pov_attr_dict"):
             cls._pov_attr_dict = {cls : set()}
@@ -520,11 +520,12 @@ class POVPrint:
 
     @classmethod
     def value(cls, v):
-        if isinstance(v, str):
-            v = repr(v)
-        return cls("{0} :: {1}",
-                POVPrint.const(v),
-                POVPrint.type(type(v)))
+        tv = POVPrint.type(type(v))
+        try:
+            v = POVPrint.const(repr(v))
+        except:
+            v = POVPrint.instance(v)
+        return cls("{0} :: {1}", v, tv)
 
     @classmethod
     def join(cls, jstr, *elts, cons=lambda x:x):
@@ -608,7 +609,6 @@ class POVObj:
     Base class for wrapping Python data structures
     """
     def __init__(self, name, base_type):
-        self._file = _global_file
         self._name = name
         self._base_type = base_type
 
@@ -629,7 +629,7 @@ class POVDict(POVObj, dict):
     
     def __delitem__(self, key, /):
         with POVPrint.attr() as printer:
-            printer.print("del", self._name, '[', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ']')
+            printer.print("del", self._name, '[', POVPrint.value(key), ']')
         return dict.__delitem__(self, key)
     
     def __setitem__(self, key, value, /):
@@ -662,7 +662,7 @@ class POVDict(POVObj, dict):
         value = dict.pop(self, key, default)
         with POVPrint.attr() as printer:
             printer.print(self._name, "pop(", POVPrint.value(key), ')',
-                        self.cons.info("<miss>" if not had else "<hit>"),
+                        POVPrint.info("<miss>" if not had else "<hit>"),
                         "=>", POVPrint.value(value))
         return value
     
@@ -677,8 +677,8 @@ class POVDict(POVObj, dict):
         had = key in self
         value = dict.setdefault(self, key, default)
         with POVPrint.attr() as printer:
-            printer.print(self._name, "setdefault(", POVPrint.value(key), "=>", POVPrint.value(value),
-                         self.cons.info("<no update>" if had else "<updated>"))
+            printer.print(self._name, "setdefault(", POVPrint.value(key), ")", "=>", POVPrint.value(value),
+                         POVPrint.info("<no update>" if had else "<updated>"))
         return value
     
     def update(self, *args, **kwargs):
@@ -834,14 +834,22 @@ def _pov_excepthook(exctype, value, tb):
     pov._log = []
     with POVPrint.bad() as printer:
         printer.print(POVPrint.head(f"Terminated with uncaught {exctype.__name__}"))
+        stacktrace = []
         while tb:
+            stacktrace.append(tb)
+            tb = tb.tb_next
+        
+        if bad_pov := stacktrace[-1].tb_frame.f_code.co_filename == __file__:
+            printer.print(POVPrint.head("Error is caused by POV itself!"))
+
+        for tb in stacktrace:
             frame = tb.tb_frame
             co = frame.f_code
             func = co.co_name
             file = co.co_filename
             line = tb.tb_lineno
 
-            if file != __file__:
+            if bad_pov or file != __file__:
 
                 try:
                     with open(file) as src_file:
@@ -853,11 +861,12 @@ def _pov_excepthook(exctype, value, tb):
                                 POVPrint.func(func))
                 if src:
                     printer.print('\t', POVPrint.expr(src))
-
-            tb = tb.tb_next
         
         printer.print(POVPrint.exception(value))
         exit(-1)
 
-sys.__excepthook__ = _pov_excepthook
-sys.excepthook = _pov_excepthook
+def __init__():
+    sys.__excepthook__ = _pov_excepthook
+    sys.excepthook = _pov_excepthook        
+            
+__init__()
