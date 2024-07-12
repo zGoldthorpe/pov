@@ -76,13 +76,13 @@ class POV:
             printer.print("Expression view:")
             for expr in exprs:
                 if not isinstance(expr, str):
-                    printer.append(POV.print.ok, POV.print.value(expr))
+                    printer.append(POVPrint.ok(), POVPrint.value(expr))
                     continue
                 try:
                     val = eval(expr, self._context)
-                    printer.append(POV.print.ok, POV.print.expr(expr), "=>", POV.print.value(val))
+                    printer.append(POVPrint.ok(), POVPrint.expr(expr), "=>", POVPrint.value(val))
                 except Exception as exc:
-                    printer.append(POV.print.bad, POV.print.expr(expr), "><", POV.print.exception(exc))
+                    printer.append(POVPrint.bad(), POVPrint.expr(expr), "><", POVPrint.exception(exc))
 
         return self
     
@@ -357,35 +357,14 @@ class POV:
             self.append(self, *args, **kwargs)
 
         def append(self, printer, *args, **kwargs):
-            if len(self._lines) == 0:
-                rstack = list(reversed(self._stack))
-                rprev = list(reversed(self._previous_stack))
-                i = 0
-                while i < min(len(rstack), len(rprev)):
-                    if rstack[i] != rprev[i]:
-                        break
-                    i += 1
-                
-                if i > 0:
-                    if i < len(rprev):
-                        self._lines.append((self._bars, POVPrint.path(), (POVPrint.path(f"<unnest {len(rprev)-i}>"),), {}))
-                    else:
-                        self._lines.append((self._bars, POVPrint.path(), (POVPrint.path("<nest>"),), {}))
-                
-                for j in range(i, len(rstack)):
-                    frame = rstack[j]
-                    self._lines.append((self._bars, POVPrint.path(), (POVPrint.frame(frame),), {}))
-
-            self._lines.append((self._bars, printer, args, kwargs))
+            self._lines.append((printer, args, kwargs))
 
         def __enter__(self):
             self._parent = POV.Printer._parent
             POV.Printer._parent = self
             if self._parent is None:
-                self._last_scope = None
                 self._bars = []
             else:
-                self._last_scope = self._parent._current_scope
                 self._bars = list(self._parent._bars)
             
             self._bars.append(POV.Printer('|', self._style))
@@ -395,16 +374,9 @@ class POV:
             
             self._stack = []
             for frame in inspect.stack():
-                if frame == self._last_scope:
-                    break
-                if frame.filename == __file__:
+                if frame.filename == __file__ or not os.path.exists(frame.filename):
                     continue
                 self._stack.append(frame)
-
-            self._current_scope = self._stack[-1] if self._stack else self._last_scope
-
-            self._previous_stack = POV.Printer._previous_stack
-            POV.Printer._previous_stack = self._stack
 
             return self
         
@@ -412,18 +384,40 @@ class POV:
             global _global_file
             # NB: do NOT revert POV.Printer._previous_stack
             
-            self._lines += self._child_lines
+            stacked_lines = [(list(reversed(self._stack)), self._bars, self._lines)] + self._child_lines
 
             if self._parent is not None:
-                self._parent._child_lines += self._lines
+                self._parent._child_lines.extend(stacked_lines)
             else:
-                for bars, printer, args, kwargs in self._lines:
-                    bars = "".join(map(repr, bars))
+                def dump(printer, bars, *args, **kwargs):
                     kwargs["file"] = _global_file
                     kwargs["end"] = '\n'
                     print(POVPrint.head(), printer, bars, *args, **kwargs)
+                
+                for stack, bars, lines in stacked_lines:
+                    bars = "".join(map(repr, bars))
+                    if len(lines) == 0:
+                        continue
+                    i = 0
+                    while i < min(len(stack), len(POV.Printer._previous_stack)):
+                        if stack[i] != POV.Printer._previous_stack[i]:
+                            break
+                        i += 1
+                    if i > 0:
+                        if i < len(POV.Printer._previous_stack):
+                            dump(POVPrint.path(), bars, POVPrint.frame(stack[i-1]),
+                                 POVPrint.path(f"<up {len(POV.Printer._previous_stack)-i}>"))
+                    else:
+                        dump(POVPrint.path(), bars, POVPrint.path("<new stack>"))
 
-            POV.Printer._current_scope = self._last_scope
+                    for j in range(i, len(stack)):
+                        dump(POVPrint.path(), bars, POVPrint.frame(stack[j]))
+                    
+                    for printer, args, kwargs in lines:
+                        dump(printer, bars, *args, **kwargs)
+
+                    POV.Printer._previous_stack = stack
+
             POV.Printer._parent = self._parent
             
 
@@ -590,6 +584,18 @@ class POVPrint:
 
     @classmethod
     def frame(cls, frame):
+        filename = frame.filename
+        if os.path.exists(filename):
+            filename = min(filename, os.path.relpath(filename), key=len)
+            with open(filename) as file:
+                src = ' '.join(file.readlines()[frame.lineno-1].split())
+                if len(src) > 63:
+                    src = POVPrint("{0}...{1}", POVPrint.expr(src[:30]), POVPrint.expr(src[-30:]))
+                else:
+                    src = POVPrint.expr(src)
+            return cls("{0}:{1} ({2}) {3}", POVPrint.path(filename), POVPrint.info(frame.lineno),
+                            POVPrint.func(frame.function), src)
+            
         return cls("{0}:{1} ({2})", POVPrint.path(frame.filename), POVPrint.info(frame.lineno),
                                         POVPrint.func(frame.function))
 
@@ -759,7 +765,7 @@ class POVList(POVObj, list):
 
 def print_to(file):
     """
-    POV.print_to interface
+    POVPrint_to interface
     """
     return POV().print_to(file)
 
