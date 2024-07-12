@@ -3,7 +3,7 @@ Demonstrates wrapper-based function tracking
 
 Assumes "pov" is in PYTHONPATH
 """
-@__import__("pov").stack(None).track
+@__import__("pov").track
 def binom(n, k, mem={}):
     if not 0 <= k <= n:
         return 0

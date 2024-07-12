@@ -6,6 +6,7 @@ Glorified printing functionality
 
 import code
 import inspect
+import os
 import sys
 
 _global_file=sys.stderr
@@ -38,7 +39,7 @@ class POV:
         """
         Simple logger; behaves like an ordinary print.
         """
-        with POVPrint.info as printer:
+        with POVPrint.info() as printer:
             printer.print(*args, **kwargs)
         return self
     
@@ -46,7 +47,7 @@ class POV:
         """
         Log an 'ok' event; behaves like an ordinary print.
         """
-        with POVPrint.ok as printer:
+        with POVPrint.ok() as printer:
             printer.print(*args, **kwargs)
         return self
 
@@ -54,7 +55,7 @@ class POV:
         """
         Log a 'bad' event; behaves like an ordinary print.
         """
-        with POVPrint.bad as printer:
+        with POVPrint.bad() as printer:
             printer.print(*args, **kwargs)
         return self
     
@@ -62,7 +63,7 @@ class POV:
         """
         Log a warning; behaves like an ordinary print.
         """
-        with POVPrint.warn as printer:
+        with POVPrint.warn() as printer:
             printer.print(*args, **kwargs)
         return self
     
@@ -71,7 +72,7 @@ class POV:
         View the value of various expressions.
         """
         
-        with POVPrint.ok as printer:
+        with POVPrint.ok() as printer:
             printer.print("Expression view:")
             for expr in exprs:
                 if not isinstance(expr, str):
@@ -91,40 +92,40 @@ class POV:
         """
 
         all_true = True
-        with POVPrint.info as printer:
+        with POVPrint.info() as printer:
             printer.print("Assertions:")
 
             for expr in exprs:
                 if not isinstance(expr, str):
                     if not expr:
                         all_true = False
-                        printer.append(POVPrint.warn, POVPrint.value(expr))
+                        printer.append(POVPrint.warn(), POVPrint.value(expr))
                     else:
-                        printer.append(POVPrint.ok, POVPrint.value(expr))
+                        printer.append(POVPrint.ok(), POVPrint.value(expr))
                 else:
                     try:
                         val = eval(expr, self._context)
                         if not val:
                             all_true = False
-                            printer.append(POVPrint.warn, POVPrint.expr(expr),
+                            printer.append(POVPrint.warn(), POVPrint.expr(expr),
                                     "=>", POVPrint.value(val))
                         else:
-                            printer.append(POVPrint.ok, POVPrint.expr(expr),
+                            printer.append(POVPrint.ok(), POVPrint.expr(expr),
                                     "=>", POVPrint.value(val))
                     except Exception as exc:
                         all_true = False
-                        printer.append(POVPrint.bad, POVPrint.expr(expr),
+                        printer.append(POVPrint.bad(), POVPrint.expr(expr),
                                 "><", POVPrint.exception(exc))
         
             if not all_true:
-                printer.append(POVPrint.warn, POVPrint.bad("Some assertions failed."))
+                printer.append(POVPrint.warn(), POVPrint.bad("Some assertions failed."))
                 if interact_on_failure:
                     self.interact()
                 if exit_on_failure:
-                    printer.append(POVPrint.bad, "Exiting due to failed assertions...")
+                    printer.append(POVPrint.bad(), "Exiting due to failed assertions...")
                     exit(1)
             else:
-                printer.append(POVPrint.ok, Printer.Print.OK("All checks passed."))
+                printer.append(POVPrint.ok(), POVPrint.ok("All checks passed."))
 
             return self
 
@@ -164,7 +165,7 @@ class POV:
         old_setattr = cls.__setattr__
         attr_msg = ("all attrs",) if all in attrs else POVPrint.join(", ", *attrs, cons=POVPrint.var)
 
-        with POVPrint.info as printer:
+        with POVPrint.info() as printer:
             printer.print("Tracking", attr_msg, "for",
                     POVPrint.type(cls) if not isinstance(obj, type) else POVPrint.instance(obj))
         
@@ -185,7 +186,7 @@ class POV:
                         all in cls._pov_attr_dict.get(obj, {}),
                         attr in cls._pov_attr_dict.get(obj, {}))):
                     
-                    with POVPrint.attr as printer:
+                    with POVPrint.attr() as printer:
                         printer.print(POVPrint.member(obj, attr),
                                 ":=", POVPrint.value(value))
                     
@@ -244,7 +245,7 @@ class POV:
                 else:
                     target_name = POVPrint.obj(name) if isinstance(name, str) else name
                 
-                with POVPrint.info as printer:
+                with POVPrint.info() as printer:
                     printer.print("Tracking class", target_name)
 
                 target_attrs = attrs if isinstance(attrs, (tuple, list)) else [attrs]
@@ -285,7 +286,7 @@ class POV:
                 else:
                     target_name = POVPrint.func(name) if isinstance(name, str) else name
                 
-                with POVPrint.info as printer:
+                with POVPrint.info() as printer:
                     printer.print("Tracking function", target_name)
 
                 def _pov_tracked_function(*args, **kwargs):
@@ -295,7 +296,7 @@ class POV:
                         args = args[1:]
                         name = POVPrint.template(name, 'static')
                     
-                    with POVPrint.func as printer:
+                    with POVPrint.func() as printer:
                         printer.print(POVPrint.join('', name, '('))
                         for arg in args:
                             printer.print('\t', POVPrint.value(arg))
@@ -305,11 +306,11 @@ class POV:
 
                         try:
                             res = target_(*args, **kwargs)
-                            printer.append(POVPrint.ok, ")", "=>", POVPrint.value(res))
+                            printer.append(POVPrint.ok(), ")", "=>", POVPrint.value(res))
                         except Exception as exc:
-                            printer.append(POVPrint.bad, ")", "><", POVPrint.exception(exc))
+                            printer.append(POVPrint.bad(), ")", "><", POVPrint.exception(exc))
                             if interact_on_exception:
-                                pov.interact()
+                                self.interact()
                             raise exc
                     return res
                 return _pov_tracked_function
@@ -319,15 +320,8 @@ class POV:
     ### console ANSI formatting class ###
     class Printer:
 
-        _depth = 0
-        _bars = []
-        _lines = []
-        _current_scope = None
-
-
-        def __init__(self, pov):
-                setattr(self, attr, POV.Printer(f"[{c}]", style))
-                setattr(self, attr, POV.Printer(attr, style))
+        _parent = None
+        _previous_stack = []
 
         def __init__(self, content, style):
             self._content = content
@@ -337,7 +331,13 @@ class POV:
         
         def _ansi_supported(self) -> bool:
             global _global_file
-            return sys.platform != 'win32' and hasattr(_global_file, "isatty") and _global_file.isatty()
+            if not hasattr(_global_file, "isatty"):
+                return False
+            if not _global_file.isatty():
+                return False
+            if sys.platform == 'win32':
+                return "ANSICON" in os.environ
+            return True
 
         def __repr__(self):
             if self._ansi_supported():
@@ -358,14 +358,41 @@ class POV:
 
         def append(self, printer, *args, **kwargs):
             if len(self._lines) == 0:
-                for frame in reversed(self._stack):
-                    self._lines.append((POV.Printer._bars, POVPrint.path, (POVPrint.frame(frame),), {}))
-            self._lines.append((POV.Printer._bars, printer, args, kwargs))
+                rstack = list(reversed(self._stack))
+                rprev = list(reversed(self._previous_stack))
+                i = 0
+                while i < min(len(rstack), len(rprev)):
+                    if rstack[i] != rprev[i]:
+                        break
+                    i += 1
+                
+                if i > 0:
+                    if i < len(rprev):
+                        self._lines.append((self._bars, POVPrint.path(), (POVPrint.path(f"<unnest {len(rprev)-i}>"),), {}))
+                    else:
+                        self._lines.append((self._bars, POVPrint.path(), (POVPrint.path("<nest>"),), {}))
+                
+                for j in range(i, len(rstack)):
+                    frame = rstack[j]
+                    self._lines.append((self._bars, POVPrint.path(), (POVPrint.frame(frame),), {}))
+
+            self._lines.append((self._bars, printer, args, kwargs))
 
         def __enter__(self):
-            POV.Printer._bars.append(POV.Printer('|', self._style))
-            self._last_scope = POV.Printer._current_scope
+            self._parent = POV.Printer._parent
+            POV.Printer._parent = self
+            if self._parent is None:
+                self._last_scope = None
+                self._bars = []
+            else:
+                self._last_scope = self._parent._current_scope
+                self._bars = list(self._parent._bars)
+            
+            self._bars.append(POV.Printer('|', self._style))
 
+            self._lines = []
+            self._child_lines = []
+            
             self._stack = []
             for frame in inspect.stack():
                 if frame == self._last_scope:
@@ -374,46 +401,36 @@ class POV:
                     continue
                 self._stack.append(frame)
 
-            POV.Printer._current_scope = self._stack[-1] if self._stack else self._last_scope
+            self._current_scope = self._stack[-1] if self._stack else self._last_scope
+
+            self._previous_stack = POV.Printer._previous_stack
+            POV.Printer._previous_stack = self._stack
+
             return self
         
         def __exit__(self, exc_type, value, tb):
             global _global_file
-
-            POV.Printer._lines = self._lines + POV.Printer._lines
-            self._lines.clear()
-            POV.Printer_current_scope = self._last_scope
-            POV.Printer._bars.pop()
+            # NB: do NOT revert POV.Printer._previous_stack
             
-            if len(POV.Printer._bars) == 0:
-                head = repr(POVPrint.head)
-                for stack, printer, args, kwargs in POV.Printer._lines:
-                    bars = "".join(map(repr, stack))
+            self._lines += self._child_lines
+
+            if self._parent is not None:
+                self._parent._child_lines += self._lines
+            else:
+                for bars, printer, args, kwargs in self._lines:
+                    bars = "".join(map(repr, bars))
                     kwargs["file"] = _global_file
                     kwargs["end"] = '\n'
-                    print(head, printer, bars, *args, **kwargs)
+                    print(POVPrint.head(), printer, bars, *args, **kwargs)
 
-                POV.Printer._lines.clear()
+            POV.Printer._current_scope = self._last_scope
+            POV.Printer._parent = self._parent
+            
 
 class POVPrint:
     """
     Designated printing styles
     """
-    head = POV.Printer("POV", "41;37")
-    path = POV.Printer("[/]", "2")
-    bad  = POV.Printer("[-]", "31")
-    ok   = POV.Printer("[+]", "32")
-    warn = POV.Printer("[!]", "33")
-    func = POV.Printer("[f]", "34")
-    attr = POV.Printer("[a]", "35")
-    info = POV.Printer("[i]", "36")
-    norm = POV.Printer("[ ]", "37")
-
-    var   = POV.Printer('', "35;3")
-    expr  = POV.Printer('', "35")
-    obj   = POV.Printer('', "36;1")
-    const = POV.Printer('', "33;3")
-    id    = POV.Printer('', "33;2")
     
     def __init__(self, fmt:str, *args, **kwargs):
         self._fmt = fmt
@@ -422,7 +439,7 @@ class POVPrint:
 
     def __repr__(self):
         return self._fmt.format(*self._args, **self._kwargs)
-
+    
     @property
     def plain(self):
         def make_plain(key):
@@ -430,8 +447,82 @@ class POVPrint:
                 return key.plain
             return repr(key)
         args = map(make_plain, self._args)
-        kwargs = dict(map(lambda k, v: k, make_plain(v), self._kwargs.items()))
+        kwargs = { k : make_plain(v) for k, v in self._kwargs.items() }
         return self._fmt.format(*args, **kwargs)
+
+    ### Style printers ###
+
+    @staticmethod
+    def head(arg=None):
+        printer = POV.Printer("POV", "41;37")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def path(arg=None):
+        printer = POV.Printer("[/]", "2")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def bad(arg=None):
+        printer = POV.Printer("[-]", "31")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def ok(arg=None):
+        printer = POV.Printer("[+]", "32")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def warn(arg=None):
+        printer = POV.Printer("[!]", "33")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def func(arg=None):
+        printer = POV.Printer("[f]", "34")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def attr(arg=None):
+        printer = POV.Printer("[a]", "35")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def info(arg=None):
+        printer = POV.Printer("[i]", "36")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def norm(arg=None):
+        printer = POV.Printer("[ ]", "37")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def var(arg=None):
+        printer = POV.Printer('', "35;3")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def expr(arg=None):
+        printer = POV.Printer('', "35")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def obj(arg=None):
+        printer = POV.Printer('', "36;1")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def const(arg=None):
+        printer = POV.Printer('', "33;3")
+        return printer if arg is None else printer(arg)
+
+    @staticmethod
+    def id(arg=None):
+        printer = POV.Printer('', "33;2")
+        return printer if arg is None else printer(arg)
+
+    ### Styled maccros ###
 
     @classmethod
     def value(cls, v):
@@ -465,7 +556,7 @@ class POVPrint:
     @classmethod
     def function(cls, func):
         module = POVPrint.join('.',
-                *filter(lambda m: m != "__main__", t.__module__.split('.')),
+                *filter(lambda m: m != "__main__", func.__module__.split('.')),
                 cons=POVPrint.path)
         *os, f = func.__qualname__.split('.')
         f = POVPrint.func(f)
@@ -515,7 +606,7 @@ class POVObj:
         self._name = name
         self._base_type = base_type
 
-        with POVPrint.info as printer:
+        with POVPrint.info() as printer:
             printer.print("Intercepting", POVPrint.type(base_type), "instance", name)
     
     def __repr__(self):
@@ -531,17 +622,17 @@ class POVDict(POVObj, dict):
         POVObj.__init__(self, pov_name, dict)
     
     def __delitem__(self, key, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print("del", self._name, '[', self.cons.var(key), "::", self.cons.obj(type(key).__name__), ']')
         return dict.__delitem__(self, key)
     
     def __setitem__(self, key, value, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, '[', POVPrint.value(key), ']', ":=", POVPrint.value(value))
         return dict.__setitem__(self, key, value)
     
     def __ior__(self, rhs, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "|=")
             rhs = dict(rhs)
             for k, v in rhs:
@@ -549,13 +640,13 @@ class POVDict(POVObj, dict):
         return dict.__ior__(self, rhs)
 
     def clear(self, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, 'cleared')
         return dict.clear(self)
     
     def get(self, key, default=None, /):
         if key not in self:
-            with POVPrint.attr as printer:
+            with POVPrint.attr() as printer:
                 printer.print(self._name, 'get(', POVPrint.value(key), ') missed',
                              "=>", POVPrint.value(default))
         return dict.get(self, key, default)
@@ -563,7 +654,7 @@ class POVDict(POVObj, dict):
     def pop(self, key, default=None, /):
         had = key in self
         value = dict.pop(self, key, default)
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "pop(", POVPrint.value(key), ')',
                         self.cons.info("<miss>" if not had else "<hit>"),
                         "=>", POVPrint.value(value))
@@ -571,7 +662,7 @@ class POVDict(POVObj, dict):
     
     def popitem(self, /):
         k, v = dict.popitem(self)
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "popitem", "=>",
                          '(', POVPrint.value(k), ',', POVPrint.value(v), ')')
         return k, v
@@ -579,13 +670,13 @@ class POVDict(POVObj, dict):
     def setdefault(self, key, default=None, /):
         had = key in self
         value = dict.setdefault(self, key, default)
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "setdefault(", POVPrint.value(key), "=>", POVPrint.value(value),
                          self.cons.info("<no update>" if had else "<updated>"))
         return value
     
     def update(self, *args, **kwargs):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "update:")
             for arg in args:
                 arg = dict(arg)
@@ -604,62 +695,62 @@ class POVList(POVObj, list):
         POVObj.__init__(self, pov_name, list)
     
     def __delitem__(self, key, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print("del", self._name, '[', POVPrint.const(key), ']')
         return list.__delitem__(self, key)
     
     def __iadd__(self, rhs, /):
         rhs = list(rhs)
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "+=")
             for it in rhs:
                 printer.print('\t', POVPrint.value(it))
         return list.__iadd__(self, rhs)
     
     def __imul__(self, mul, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "*=", POVPrint.value(mul))
         return list.__imul__(self, mul)
     
     def __setitem__(self, index, value, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, '[', POVPrint.const(index), ']', ":=", POVPrint.value(value))
         return list.__setitem__(self, index, value)
     
     def append(self, obj, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "append(", POVPrint.value(obj), ")")
         return list.append(self, obj)
 
     def clear(self, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "cleared")
         return list.clear(self)
     
     def insert(self, index, obj, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "insert", POVPrint.value(obj),
                          "at index", POVPrint.const(index))
         return list.insert(self, index, obj)
     
     def pop(self, index=-1, /):
         value = list.pop(self, index)
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, f"pop(", POVPrint.const(index), ")", "=>", POVPrint.value(value))
         return value
     
     def remove(self, obj, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "removing", POVPrint.value(obj))
         return list.remove(self, obj)
 
     def reverse(self, /):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "in-place reversal")
         return list.reverse(self)
     
     def sort(self, *, key=None, reverse=False):
-        with POVPrint.attr as printer:
+        with POVPrint.attr() as printer:
             printer.print(self._name, "sorted")
         return list.sort(self, key=key, reverse=reverse)
 
@@ -735,7 +826,7 @@ def track(target=None, *, name=None, attrs=()):
 def _pov_excepthook(exctype, value, tb):
     pov = POV()
     pov._log = []
-    with POVPrint.bad as printer:
+    with POVPrint.bad() as printer:
         printer.print(POVPrint.head(f"Terminated with uncaught {exctype.__name__}"))
         while tb:
             frame = tb.tb_frame

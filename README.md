@@ -8,8 +8,15 @@ There's nothing fancy here; it's essentially a glorification of littering the co
 
 Add `pov` folder to your Python path
 
+(Linux bash)
 ```bash
 export PYTHONPATH=$PYTHONPATH:/path/to/pov
+```
+
+(Windows powershell)
+```powershell
+$env:PYTHONPATH+=";/path/to/pov"
+$env:ANSICON=1                      # for coloured console output
 ```
 
 Then, you can inject POV debug messages in individual lines using, e.g.
