@@ -8,7 +8,6 @@ Pass command-line arguments to enable debugging.
     'track' tracks CountAndTrack._track
     'all' tracks all attributes
     'count_fun' tracks CountAndTrack.count()
-    'fullstack' tracks the entire call stack (only for subsequent CL args)
 """
 import sys
 
@@ -42,8 +41,6 @@ if __name__ == "__main__":
                 __import__("pov").track_attr(CountAndTrack, all)
             case 'count_fun':
                 __import__("pov").track_memfun(CountAndTrack, "count")
-            case 'fullstack':
-                __import__("pov").stack(None, globally=True)
     
     counter = CountAndTrack()
     print("5th Fibonacci number:", naive_fibonacci(5, counter))

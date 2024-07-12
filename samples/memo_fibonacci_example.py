@@ -6,7 +6,6 @@ Assumes "pov" is in PYTHONPATH
 Pass command-line arguments to enable debugging.
     'memo' tracks memoisation table
     'get' tracks get method
-    'fullstack' tracks the entire call stack (only for subsequent arguments)
 """
 import sys
 
@@ -27,7 +26,5 @@ if __name__ == "__main__":
                 __import__("pov").track_attr(Fibonacci, "_memo")
             case 'get':
                 __import__("pov").track_memfun(Fibonacci, "get")
-            case 'fullstack':
-                __import__("pov").stack(None, globally=True)
     
     print("10th Fibonacci number:", Fibonacci().get(10))
