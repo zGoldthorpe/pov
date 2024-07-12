@@ -763,29 +763,29 @@ def print_to(file):
     """
     return POV().print_to(file)
 
-def info(*args, value=0, **kwargs):
+def info(*args, **kwargs):
     """
     POV.info interface
     """
-    return POV().info(*args, value=value, **kwargs)
+    return POV().info(*args, **kwargs)
 
-def ok(*args, value=0, **kwargs):
+def ok(*args, **kwargs):
     """
     POV.ok interface
     """
-    return POV().ok(*args, value=value, **kwargs)
+    return POV().ok(*args, **kwargs)
 
-def bad(*args, value=0, **kwargs):
+def bad(*args, **kwargs):
     """
     POV.bad interface
     """
-    return POV().bad(*args, value=value, **kwargs)
+    return POV().bad(*args, **kwargs)
 
-def warn(*args, value=0, **kwargs):
+def warn(*args, **kwargs):
     """
     POV.warn interface
     """
-    return POV().warn(*args, value=value, **kwargs)
+    return POV().warn(*args, **kwargs)
 
 def view(*exprs):
     """
