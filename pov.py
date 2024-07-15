@@ -86,6 +86,40 @@ class POV:
 
         return self
     
+    def nop(self, expr, **notes):
+        """
+        Logged "nop". Keywords get printed in the logger as well.
+        Always returns eval(expr) in the ambient context.
+
+        One use case is to tweak a function argument, while retaining the original:
+        __import__("pov").nop(<new_arg>, old=<old_arg>)
+        """
+
+        with POVPrint.info() as printer:
+            printer.print("NOP wrap")
+            for key, note in notes.items():
+                if isinstance(note, str):
+                    printer.print(f"{key}:\t", note)
+                else:
+                    printer.print(f"{key}:\t", POVPrint.value(note))
+            
+            if not isinstance(expr, str):
+                printer.append(POVPrint.ok(), "$", POVPrint.value(expr))
+                return expr
+            else:
+                printer.print("$", POVPrint.expr(expr))
+                try:
+                    val = eval(expr, self._context)
+                    printer.append(POVPrint.ok(), "=>", POVPrint.value(val))
+                    return val
+                except Exception as exc:
+                    printer.append(POVPrint.bad(), "><", POVPrint.exception(exc))
+                    raise exc
+        
+
+
+
+    
     def check(self, *exprs:str, exit_on_failure=False, interact_on_failure=False):
         """
         Check if expressions evaluate (or cast) to True.
@@ -828,6 +862,13 @@ def track(target=None, *, name=None, attrs=()):
     POV.track interface
     """
     return POV().track(target, name=name, attrs=attrs)
+
+def nop(expr, **notes):
+    """
+    POV.nop interface
+    """
+    return POV().nop(expr, **notes)
+
 
 def _pov_excepthook(exctype, value, tb):
     pov = POV()
