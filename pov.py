@@ -67,22 +67,40 @@ class POV:
             printer.print(*args, **kwargs)
         return self
     
-    def view(self, *exprs:str):
+    def view(self, *exprs:str, view_title=None, **kwexprs):
         """
         View the value of various expressions.
         """
+
+        if view_title is None:
+            view_title = "Expression view"
         
+        def get_name(expr):
+            if not isinstance(expr, str):
+                return '$'
+            return POVPrint.expr(expr)
+        
+        pairs = [
+            (get_name(expr), expr) for expr in exprs
+        ] + [
+            (get_name(key), expr) for key, expr in kwexprs.items()
+        ]
+
         with POVPrint.ok() as printer:
-            printer.print("Expression view:")
-            for expr in exprs:
-                if not isinstance(expr, str):
-                    printer.append(POVPrint.ok(), POVPrint.value(expr))
-                    continue
-                try:
-                    val = eval(expr, self._context)
-                    printer.append(POVPrint.ok(), POVPrint.expr(expr), "=>", POVPrint.value(val))
-                except Exception as exc:
-                    printer.append(POVPrint.bad(), POVPrint.expr(expr), "><", POVPrint.exception(exc))
+            printer.print(f"{view_title}:")
+            for name, expr in pairs:
+                if isinstance(expr, str):
+                    try:
+                        val = eval(expr, self._context)
+                    except Exception as exc:
+                        val = exc
+                else:
+                    val = expr
+                
+                if isinstance(val, Exception):
+                    printer.append(POVPrint.bad(), name, "><", POVPrint.exception(val))
+                else:
+                    printer.append(POVPrint.ok(), name, "=>", POVPrint.value(val))
 
         return self
     
@@ -827,11 +845,11 @@ def warn(*args, **kwargs):
     """
     return POV().warn(*args, **kwargs)
 
-def view(*exprs):
+def view(*exprs, view_title=None, **kwexprs):
     """
     POV.view interface
     """
-    return POV().view(*exprs)
+    return POV().view(*exprs, view_title=view_title, **kwexprs)
 
 def check(*exprs, exit_on_failure=False, interact_on_failure=False):
     """
