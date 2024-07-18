@@ -181,9 +181,9 @@ class POV:
         
         msg = f"{close_msg}\n{exit_msg}"
         if not normal_exit:
-            context["exit"] = lambda *_: print(msg)
+            context["exit"] = lambda *_: POV.Printer._print(msg)
         if not normal_quit:
-            context["quit"] = lambda *_: print(msg)
+            context["quit"] = lambda *_: POV.Printer._print(msg)
         
         code.interact(banner=f"[ ] Entering interactive mode.\n{msg}", local=context, exitmsg="[ ] Resuming normal execution...")
 
@@ -426,7 +426,7 @@ class POV:
                 def dump(printer, bars, *args, **kwargs):
                     kwargs["file"] = _global_file
                     kwargs["end"] = '\n'
-                    print(POVPrint.head(), printer, POVPrint.id(os.getpid()), bars, *args, **kwargs)
+                    POV.Printer._print(POVPrint.head(), printer, POVPrint.id(os.getpid()), bars, *args, **kwargs)
                 
                 for stack, bars, lines in stacked_lines:
                     bars = "".join(map(repr, bars))
@@ -906,8 +906,16 @@ def _pov_excepthook(exctype, value, tb):
         printer.print(POVPrint.exception(value))
         exit(-1)
 
+def _pov_print(*args, **kwargs):
+    with POVPrint.norm() as printer:
+        printer.print(*args, **kwargs)
+
 def __init__():
     sys.__excepthook__ = _pov_excepthook
-    sys.excepthook = _pov_excepthook        
+    sys.excepthook = _pov_excepthook
+
+    POV.Printer._print = print
+    import builtins
+    builtins.print = _pov_print
             
 __init__()
