@@ -603,56 +603,113 @@ class POVPrint:
     _value_depth=0
     @classmethod
     def value(cls, v, depthlimit=0, full=False):
-        tv = POVPrint.type(type(v))
+
+        def short_repr(arg):
+            if arg is None:
+                return True
+            if isinstance(arg, (int, float)):
+                return True
+            if isinstance(arg, str):
+                return len(arg) < 16
+            if isinstance(arg, (list, tuple, set)):
+                if len(arg) == 0:
+                    return True
+                if len(arg) == 1:
+                    x, = arg
+                    return short_repr(x)
+                return False
+            if isinstance(arg, dict):
+                if len(arg) == 0:
+                    return True
+                if len(arg) == 1:
+                    (k, v), = arg.items()
+                    return short_repr(k) and short_repr(v)
+                return False
+            return False
+
+        if v is None:
+            return POVPrint.obj("None")
         if isinstance(v, (int, float, str)):
-            v = POVPrint.const(repr(v))
-        elif depthlimit == 0:
-            v = POVPrint.instance(v)
-        else:
-            POVPrint._value_depth += 1
-            deeptab = '\n' + '  '*POVPrint._value_depth
-            if isinstance(v, list):
-                tab = ' ' if depthlimit-1 == 0 and len(v) < 10 else deeptab
-                v = cls("{0}{1}{2}",
-                             POVPrint.expr(f'[{tab}'),
-                             POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
-                             POVPrint.expr(f'{tab}]'))
-            elif isinstance(v, set):
-                tab = ' ' if depthlimit-1 == 0 and len(v) < 10 else deeptab
-                v = cls("{0}{1}{2}",
-                             POVPrint.expr(f'{{{tab}'),
-                             POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
-                             POVPrint.expr(f'{tab}}}'))
-            elif isinstance(v, dict):
-                tab = ' ' if depthlimit-1 == 0 and len(v) < 5 else deeptab
-                v = cls("{0}{1}{2}",
-                             POVPrint.expr(f'{{{tab}'),
-                             POVPrint.join(POVPrint.expr(f',{tab}'), *v.items(),
-                                           cons=lambda pair:
-                                                POVPrint.join(POVPrint.expr(" : "), *pair,
-                                                              cons=lambda x: cls.value(x, depthlimit-1, full))),
-                             POVPrint.expr(f'{tab}}}'))
-            elif hasattr(v, "__dir__"):
-                vlist = [
-                    (attr, getattr(v, attr))
-                    for attr in dir(v)
-                    if (full or not attr.startswith('_'))
-                        and not callable(getattr(v, attr))
-                ]
-                tab = ' ' if depthlimit-1 == 0 and 0 < len(vlist) < 5 else deeptab
-                v = cls("{0}{1}{2}{3}",
-                             POVPrint.instance(v), POVPrint.expr(f'({tab}'),
-                             POVPrint.join(f",{tab}", *vlist,
-                                           cons=lambda pair:
-                                                POVPrint("{0}{2}{1}",
-                                                         POVPrint.attr(pair[0]),
-                                                         POVPrint.value(pair[1], depthlimit-1, full),
-                                                         POVPrint.expr('='))),
-                            POVPrint.expr(f'{tab})'))
+            return POVPrint.const(repr(v))
+        if depthlimit == 0 and not short_repr(v):
+            return POVPrint.instance(v)
+        
+    
+        POVPrint._value_depth += 1
+        deeptab = '\n' + '  '*POVPrint._value_depth
+        if isinstance(v, list):
+            tab = ' ' if (depthlimit-1 == 0 or all(short_repr(x) for x in v)) \
+                          and len(v) < 10 else deeptab
+            v = cls("{0}{1}{2}",
+                            POVPrint.expr(f'[{tab}'),
+                            POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
+                            cls("{0}{1}", tab, POVPrint.expr(']')))
+        elif isinstance(v, tuple):
+            if len(v) == 0:
+                v = POVPrint.expr("(,)")
             else:
+                tab = ' ' if (depthlimit-1 == 0 or all(short_repr(x) for x in v)) \
+                            and len(v) < 10 else deeptab
+                v = cls("{0}{1}{2}",
+                                POVPrint.expr(f'({tab}'),
+                                POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
+                                cls("{0}{1}", tab, POVPrint.expr(')')))
+        elif isinstance(v, set):
+            if len(v) == 0:
+                v = cls("{0}()", POVPrint.type(type(v)))
+            else:
+                tab = ' ' if (depthlimit-1 == 0 or all(short_repr(x) for x in v)) \
+                            and len(v) < 10 else deeptab
+                v = cls("{0}{1}{2}",
+                            POVPrint.expr(f'{{{tab}'),
+                            POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
+                            cls("{0}{1}", tab, POVPrint.expr('}')))
+        elif isinstance(v, dict):
+            tab = ' ' if (depthlimit-1 == 0 or 
+                          all(all(short_repr(x) for x in p) for p in v.items())) \
+                          and len(v) < 5 else deeptab
+            if len(v) > 0 and all(isinstance(key, str) for key in v):
+                v = cls("{0}{1}{2}",
+                        cls("{0}{1}", POVPrint.type(type(v)), f"({tab}"),
+                        POVPrint.join(f",{tab}", *v.items(),
+                                        cons=lambda pair:
+                                            cls("{0}={1}",
+                                                    POVPrint.attr(pair[0]),
+                                                    POVPrint.value(pair[1], depthlimit-1, full))),
+                        f'{tab})')
+            else:
+                v = cls("{0}{1}{2}",
+                        POVPrint.expr(f'{{{tab}'),
+                        POVPrint.join(POVPrint.expr(f',{tab}'), *v.items(),
+                                        cons=lambda pair:
+                                            POVPrint.join(POVPrint.expr(" : "), *pair,
+                                                            cons=lambda x: cls.value(x, depthlimit-1, full))),
+                        cls("{0}{1}", tab, POVPrint.expr('}')))
+        elif hasattr(v, "__dir__"):
+            vlist = [
+                (attr, getattr(v, attr))
+                for attr in dir(v)
+                if (full or not attr.startswith('_'))
+                    and not callable(getattr(v, attr))
+            ]
+            if len(vlist) == 0:
                 v = POVPrint.instance(v)
-            POVPrint._value_depth -= 1
-        return cls("{0} {2} {1}", v, tv, POVPrint.path("#"))
+            else:
+                tab = ' ' if (depthlimit-1 == 0 or
+                              all(all(short_repr(x) for x in p) for p in vlist)) \
+                              and len(vlist) < 5 else deeptab
+                v = cls("{0}{1}{2}{3}",
+                            POVPrint.instance(v), f'({tab}',
+                            POVPrint.join(f",{tab}", *vlist,
+                                        cons=lambda pair:
+                                            cls("{0}={1}",
+                                                        POVPrint.attr(pair[0]),
+                                                        POVPrint.value(pair[1], depthlimit-1, full))),
+                        f'{tab})')
+        else:
+            v = POVPrint.instance(v)
+        POVPrint._value_depth -= 1
+        return v
 
     @classmethod
     def join(cls, jstr, *elts, cons=lambda x:x):
