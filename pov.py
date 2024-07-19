@@ -10,13 +10,19 @@ import os
 import sys
 
 _global_file = sys.stderr
+_global_depthlimit = 2
+_global_fullview = False
 
 class POV:
 
     def __init__(self):
+        global _global_depthlimit, _global_fullview
         self._stack = inspect.stack()
 
         self._context = {}
+
+        self._depthlimit = _global_depthlimit
+        self._fullview = _global_fullview
 
         for finfo in self._stack:
             frame = finfo.frame
@@ -34,6 +40,26 @@ class POV:
         global _global_file
         _global_file = file
         return self
+
+    def detail(self, depth, *, full=None, globally=False):
+        """
+        Control level of detail of printed values.
+        depth:  -1 for unlimited depth (warning: there are no guards against recursion in this case!)
+        full:   probe private attributes as well
+        """
+        self._depthlimit = depth
+        if full is not None:
+            self._fullview = full
+        if globally:
+            global _global_depthlimit
+            _global_depthlimit = depth
+            if full is not None:
+                global _global_fullview
+                _global_fullview = full
+        return self
+        
+    def _printvalue(self, value):
+        return POVPrint.value(value, depthlimit=self._depthlimit, full=self._fullview)
 
     def info(self, *args, **kwargs):
         """
@@ -100,7 +126,7 @@ class POV:
                 if isinstance(val, Exception):
                     printer.append(POVPrint.bad(), name, "><", POVPrint.exception(val))
                 else:
-                    printer.append(POVPrint.ok(), name, "=>", POVPrint.value(val))
+                    printer.append(POVPrint.ok(), name, "=>", self._printvalue(val))
 
         return self
     
@@ -119,16 +145,16 @@ class POV:
                 if isinstance(note, str):
                     printer.print(f"{key}:\t", note)
                 else:
-                    printer.print(f"{key}:\t", POVPrint.value(note))
+                    printer.print(f"{key}:\t", self._printvalue(note))
             
             if not isinstance(expr, str):
-                printer.append(POVPrint.ok(), "$", POVPrint.value(expr))
+                printer.append(POVPrint.ok(), "$", self._printvalue(expr))
                 return expr
             else:
                 printer.print("$", POVPrint.expr(expr))
                 try:
                     val = eval(expr, self._context)
-                    printer.append(POVPrint.ok(), "=>", POVPrint.value(val))
+                    printer.append(POVPrint.ok(), "=>", self._printvalue(val))
                     return val
                 except Exception as exc:
                     printer.append(POVPrint.bad(), "><", POVPrint.exception(exc))
@@ -151,19 +177,19 @@ class POV:
                 if not isinstance(expr, str):
                     if not expr:
                         all_true = False
-                        printer.append(POVPrint.warn(), POVPrint.value(expr))
+                        printer.append(POVPrint.warn(), self._printvalue(expr))
                     else:
-                        printer.append(POVPrint.ok(), POVPrint.value(expr))
+                        printer.append(POVPrint.ok(), self._printvalue(expr))
                 else:
                     try:
                         val = eval(expr, self._context)
                         if not val:
                             all_true = False
                             printer.append(POVPrint.warn(), POVPrint.expr(expr),
-                                    "=>", POVPrint.value(val))
+                                    "=>", self._printvalue(val))
                         else:
                             printer.append(POVPrint.ok(), POVPrint.expr(expr),
-                                    "=>", POVPrint.value(val))
+                                    "=>", self._printvalue(val))
                     except Exception as exc:
                         all_true = False
                         printer.append(POVPrint.bad(), POVPrint.expr(expr),
@@ -240,7 +266,7 @@ class POV:
                     
                     with POVPrint.attr() as printer:
                         printer.print(POVPrint.member(obj, attr),
-                                ":=", POVPrint.value(value))
+                                ":=", self._printvalue(value))
                     
                     if isinstance(value, dict):
                         value = POVDict(value, pov_name=POVPrint.member(obj, attr))
@@ -351,14 +377,14 @@ class POV:
                     with POVPrint.func() as printer:
                         printer.print(POVPrint.join('', name, '('))
                         for arg in args:
-                            printer.print('\t', POVPrint.value(arg))
+                            printer.print('\t', self._printvalue(arg))
                         for kw, val in kwargs.items():
                             printer.print('\t', POVPrint.join('=',
-                                POVPrint.var(kw), POVPrint.value(val)))
+                                POVPrint.var(kw), self._printvalue(val)))
 
                         try:
                             res = target_(*args, **kwargs)
-                            printer.append(POVPrint.ok(), ")", "=>", POVPrint.value(res))
+                            printer.append(POVPrint.ok(), ")", "=>", self._printvalue(res))
                         except Exception as exc:
                             printer.append(POVPrint.bad(), ")", "><", POVPrint.exception(exc))
                             if interact_on_exception:
@@ -444,7 +470,11 @@ class POV:
                 def dump(printer, bars, *args, **kwargs):
                     kwargs["file"] = _global_file
                     kwargs["end"] = '\n'
-                    POV.Printer._print(POVPrint.head(), printer, POVPrint.id(os.getpid()), bars, *args, **kwargs)
+                    sep = kwargs.get("sep", ' ')
+                    kwargs["sep"] = ' '
+                    lines = sep.join(str(arg) for arg in args).split('\n')
+                    for line in lines:
+                        POV.Printer._print(POVPrint.head(), printer, POVPrint.id(os.getpid()), bars, line, **kwargs)
                 
                 for stack, bars, lines in stacked_lines:
                     bars = "".join(map(repr, bars))
@@ -530,7 +560,7 @@ class POVPrint:
 
     @staticmethod
     def attr(arg=None):
-        printer = POV.Printer("[a]", "35")
+        printer = POV.Printer("[a]", "32;3")
         return printer if arg is None else printer(arg)
 
     @staticmethod
@@ -570,14 +600,59 @@ class POVPrint:
 
     ### Styled maccros ###
 
+    _value_depth=0
     @classmethod
-    def value(cls, v):
+    def value(cls, v, depthlimit=0, full=False):
         tv = POVPrint.type(type(v))
-        try:
+        if isinstance(v, (int, float, str)):
             v = POVPrint.const(repr(v))
-        except:
+        elif depthlimit == 0:
             v = POVPrint.instance(v)
-        return cls("{0} :: {1}", v, tv)
+        else:
+            POVPrint._value_depth += 1
+            deeptab = '\n' + '  '*POVPrint._value_depth
+            if isinstance(v, list):
+                tab = ' ' if depthlimit-1 == 0 and len(v) < 10 else deeptab
+                v = cls("{0}{1}{2}",
+                             POVPrint.expr(f'[{tab}'),
+                             POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
+                             POVPrint.expr(f'{tab}]'))
+            elif isinstance(v, set):
+                tab = ' ' if depthlimit-1 == 0 and len(v) < 10 else deeptab
+                v = cls("{0}{1}{2}",
+                             POVPrint.expr(f'{{{tab}'),
+                             POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
+                             POVPrint.expr(f'{tab}}}'))
+            elif isinstance(v, dict):
+                tab = ' ' if depthlimit-1 == 0 and len(v) < 5 else deeptab
+                v = cls("{0}{1}{2}",
+                             POVPrint.expr(f'{{{tab}'),
+                             POVPrint.join(POVPrint.expr(f',{tab}'), *v.items(),
+                                           cons=lambda pair:
+                                                POVPrint.join(POVPrint.expr(" : "), *pair,
+                                                              cons=lambda x: cls.value(x, depthlimit-1, full))),
+                             POVPrint.expr(f'{tab}}}'))
+            elif hasattr(v, "__dir__"):
+                vlist = [
+                    (attr, getattr(v, attr))
+                    for attr in dir(v)
+                    if (full or not attr.startswith('_'))
+                        and not callable(getattr(v, attr))
+                ]
+                tab = ' ' if depthlimit-1 == 0 and 0 < len(vlist) < 5 else deeptab
+                v = cls("{0}{1}{2}{3}",
+                             POVPrint.instance(v), POVPrint.expr(f'({tab}'),
+                             POVPrint.join(f",{tab}", *vlist,
+                                           cons=lambda pair:
+                                                POVPrint("{0}{2}{1}",
+                                                         POVPrint.attr(pair[0]),
+                                                         POVPrint.value(pair[1], depthlimit-1, full),
+                                                         POVPrint.expr('='))),
+                            POVPrint.expr(f'{tab})'))
+            else:
+                v = POVPrint.instance(v)
+            POVPrint._value_depth -= 1
+        return cls("{0} {2} {1}", v, tv, POVPrint.path("#"))
 
     @classmethod
     def join(cls, jstr, *elts, cons=lambda x:x):
@@ -817,9 +892,15 @@ class POVList(POVObj, list):
 
 def print_to(file):
     """
-    POVPrint_to interface
+    POV.print_to interface
     """
     return POV().print_to(file)
+
+def detail(depth, *, full=None, globally=False):
+    """
+    POV.detail interface
+    """
+    return POV().detail(depth, full=full, globally=globally)
 
 def info(*args, **kwargs):
     """
@@ -929,11 +1010,27 @@ def _pov_print(*args, **kwargs):
         printer.print(*args, **kwargs)
 
 def __init__():
-    sys.__excepthook__ = _pov_excepthook
-    sys.excepthook = _pov_excepthook
+
+    def get_int(var, default=0):
+        val = os.environ.get(var, default)
+        try:
+            return int(val)
+        except ValueError:
+            return default
+        
+    if get_int("POV_KEEP_EXCEPTHOOK") == 0:
+        sys.__excepthook__ = _pov_excepthook
+        sys.excepthook = _pov_excepthook
+
 
     POV.Printer._print = print
-    import builtins
-    builtins.print = _pov_print
+    if get_int("POV_KEEP_PRINT") == 0:
+        import builtins
+        builtins.print = _pov_print
+    
+    global _global_depthlimit, _global_fullview
+
+    _global_depthlimit = get_int("POV_DEPTH", _global_depthlimit)
+    _global_fullview = get_int("POV_FULL", int(_global_fullview)) > 0
             
 __init__()
