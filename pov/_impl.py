@@ -12,11 +12,12 @@ import sys
 _global_file = sys.stderr
 _global_depthlimit = 2
 _global_fullview = False
+_global_frame_ignore = [__file__]
 
 class POV:
 
     def __init__(self):
-        global _global_depthlimit, _global_fullview
+        global _global_depthlimit, _global_fullview, _global_frame_ignore
         self._stack = inspect.stack()
 
         self._context = {}
@@ -26,7 +27,7 @@ class POV:
 
         for finfo in self._stack:
             frame = finfo.frame
-            if finfo.filename == __file__:
+            if finfo.filename in _global_frame_ignore:
                 continue
 
             self._context = dict(frame.f_locals, **frame.f_globals)
@@ -437,6 +438,8 @@ class POV:
             self._lines.append((printer, args, kwargs))
 
         def __enter__(self):
+            global _global_frame_ignore
+
             self._parent = POV.Printer._parent
             POV.Printer._parent = self
             if self._parent is None:
@@ -451,7 +454,7 @@ class POV:
             
             self._stack = []
             for frame in inspect.stack():
-                if frame.filename == __file__ or not os.path.exists(frame.filename):
+                if frame.filename in _global_frame_ignore or not os.path.exists(frame.filename):
                     continue
                 self._stack.append(frame)
 
@@ -943,89 +946,9 @@ class POVList(POVObj, list):
             printer.print(self._name, "sorted")
         return list.sort(self, key=key, reverse=reverse)
 
-##### Front-end API #####
-
-
-def print_to(file):
-    """
-    POV.print_to interface
-    """
-    return POV().print_to(file)
-
-def detail(depth, *, full=None, globally=False):
-    """
-    POV.detail interface
-    """
-    return POV().detail(depth, full=full, globally=globally)
-
-def info(*args, **kwargs):
-    """
-    POV.info interface
-    """
-    return POV().info(*args, **kwargs)
-
-def ok(*args, **kwargs):
-    """
-    POV.ok interface
-    """
-    return POV().ok(*args, **kwargs)
-
-def bad(*args, **kwargs):
-    """
-    POV.bad interface
-    """
-    return POV().bad(*args, **kwargs)
-
-def warn(*args, **kwargs):
-    """
-    POV.warn interface
-    """
-    return POV().warn(*args, **kwargs)
-
-def view(*exprs, view_title=None, **kwexprs):
-    """
-    POV.view interface
-    """
-    return POV().view(*exprs, view_title=view_title, **kwexprs)
-
-def check(*exprs, exit_on_failure=False, interact_on_failure=False):
-    """
-    POV.check interface
-    """
-    return POV().check(*exprs, exit_on_failure=exit_on_failure, interact_on_failure=interact_on_failure)
-
-def interact(normal_exit=False, normal_quit=True):
-    """
-    POV.interact interface
-    """
-    return POV().interact(normal_exit=normal_exit, normal_quit=normal_quit)
-
-def track_attr(obj, *attrs):
-    """
-    POV.track_attr interface
-    """
-    return POV().track_attr(obj, *attrs)
-
-def track_memfun(obj, function):
-    """
-    POV.track_memfun interface
-    """
-    return POV().track_memfun(obj, function)
-
-def track(target=None, *, name=None, attrs=()):
-    """
-    POV.track interface
-    """
-    return POV().track(target, name=name, attrs=attrs)
-
-def nop(expr, **notes):
-    """
-    POV.nop interface
-    """
-    return POV().nop(expr, **notes)
-
-
 def _pov_excepthook(exctype, value, tb):
+    global _global_frame_ignore
+
     pov = POV()
     pov._log = []
     with POVPrint.bad() as printer:
@@ -1035,7 +958,7 @@ def _pov_excepthook(exctype, value, tb):
             stacktrace.append(tb)
             tb = tb.tb_next
         
-        if bad_pov := stacktrace[-1].tb_frame.f_code.co_filename == __file__:
+        if bad_pov := stacktrace[-1].tb_frame.f_code.co_filename in _global_frame_ignore:
             printer.print(POVPrint.head("Error is caused by POV itself!"))
 
         for tb in stacktrace:
@@ -1045,7 +968,7 @@ def _pov_excepthook(exctype, value, tb):
             file = co.co_filename
             line = tb.tb_lineno
 
-            if bad_pov or file != __file__:
+            if bad_pov or file not in _global_frame_ignore:
 
                 try:
                     with open(file) as src_file:
@@ -1065,7 +988,7 @@ def _pov_print(*args, **kwargs):
     with POVPrint.norm() as printer:
         printer.print(*args, **kwargs)
 
-def __init__():
+def init(ignore_frames=()):
 
     def get_int(var, default=0):
         val = os.environ.get(var, default)
@@ -1084,9 +1007,8 @@ def __init__():
         import builtins
         builtins.print = _pov_print
     
-    global _global_depthlimit, _global_fullview
+    global _global_depthlimit, _global_fullview, _global_frame_ignore
 
     _global_depthlimit = get_int("POV_DEPTH", _global_depthlimit)
     _global_fullview = get_int("POV_FULL", int(_global_fullview)) > 0
-            
-__init__()
+    _global_frame_ignore.extend(ignore_frames)

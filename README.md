@@ -40,6 +40,8 @@ This can be controlled through the environment variable `POV_KEEP_EXCEPTHOOK`: s
 POV also wraps Python's builtin `print` function to match with POV's output style.
 This can be controlled through the environment variable `POV_KEEP_PRINT`: set to `1` to use Python's normal `print` function.
 
+To completely disable POV, use the environment `POV_DISABLE`.
+
 ### Object view depth
 
 The depth and detail at which objects are probed (e.g., with `pov.view()`) can be managed at runtime with the `pov.detail(depth, *, full, globally)` function.
