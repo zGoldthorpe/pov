@@ -97,9 +97,6 @@ class POV:
         """
         View the value of various expressions.
         """
-
-        if view_title is None:
-            view_title = "Expression view"
         
         def get_name(expr):
             if not isinstance(expr, str):
@@ -113,7 +110,9 @@ class POV:
         ]
 
         with POVPrint.ok() as printer:
-            printer.print(f"{view_title}:")
+            if view_title is not None:
+                printer.print(f"{view_title}:")
+                
             for name, expr in pairs:
                 if isinstance(expr, str):
                     try:
