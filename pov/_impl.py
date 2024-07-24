@@ -609,7 +609,7 @@ class POVPrint:
         def short_repr(arg):
             if arg is None:
                 return True
-            if isinstance(arg, (int, float)):
+            if isinstance(arg, (int, float, type)):
                 return True
             if isinstance(arg, str):
                 return len(arg) < 16
@@ -631,6 +631,8 @@ class POVPrint:
 
         if v is None:
             return POVPrint.obj("None")
+        if isinstance(v, type):
+            return POVPrint.type(v)
         if isinstance(v, (int, float, str)):
             return POVPrint.const(repr(v))
         if depthlimit == 0 and not short_repr(v):
