@@ -377,10 +377,10 @@ class POV:
                     with POVPrint.func() as printer:
                         printer.print(POVPrint.join('', name, '('))
                         for arg in args:
-                            printer.print('\t', self._printvalue(arg))
+                            printer.print('\t', self._printvalue(arg), end=',\n')
                         for kw, val in kwargs.items():
                             printer.print('\t', POVPrint.join('=',
-                                POVPrint.var(kw), self._printvalue(val)))
+                                POVPrint.var(kw), self._printvalue(val)), end=',\n')
 
                         try:
                             res = target_(*args, **kwargs)
@@ -407,7 +407,8 @@ class POV:
             self._main = False
             self._lines = []
         
-        def _ansi_supported(self) -> bool:
+        @classmethod
+        def _ansi_supported(cls) -> bool:
             global _global_file
             if not hasattr(_global_file, "isatty"):
                 return False
@@ -471,11 +472,14 @@ class POV:
             else:
                 def dump(printer, bars, *args, **kwargs):
                     kwargs["file"] = _global_file
-                    kwargs["end"] = '\n'
                     sep = kwargs.get("sep", ' ')
+                    end = kwargs.get("end", '\n')
                     kwargs["sep"] = ' '
-                    lines = sep.join(str(arg) for arg in args).split('\n')
+                    kwargs["end"] = '\n'
+                    lines = (sep.join(str(arg) for arg in args) + end).split('\n')
                     for line in lines:
+                        if len(line) == 0:
+                            continue
                         POV.Printer._print(POVPrint.head(), printer, POVPrint.id(os.getpid()), bars, line, **kwargs)
                 
                 for stack, bars, lines in stacked_lines:
