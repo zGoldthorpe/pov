@@ -646,22 +646,25 @@ class POVPrint:
         POVPrint._value_depth += 1
         deeptab = '\n' + '  '*POVPrint._value_depth
         if isinstance(v, list):
-            tab = ' ' if (depthlimit-1 == 0 or all(short_repr(x) for x in v)) \
-                          and len(v) < 10 else deeptab
-            v = cls("{0}{1}{2}",
-                            POVPrint.expr(f'[{tab}'),
-                            POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
-                            cls("{0}{1}", tab, POVPrint.expr(']')))
-        elif isinstance(v, tuple):
             if len(v) == 0:
-                v = POVPrint.expr("(,)")
+                v = POVPrint.expr("[]") if type(v) == list else cls("{0}()", POVPrint.type(type(v)))
             else:
                 tab = ' ' if (depthlimit-1 == 0 or all(short_repr(x) for x in v)) \
                             and len(v) < 10 else deeptab
                 v = cls("{0}{1}{2}",
-                                POVPrint.expr(f'({tab}'),
+                            POVPrint.expr(f'[{tab}') if type(v) == list else cls("{0}(", POVPrint.type(type(v))),
+                            POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
+                            cls("{0}{1}", tab, POVPrint.expr(']') if type(v) == list else ')'))
+        elif isinstance(v, tuple):
+            if len(v) == 0:
+                v = POVPrint.expr("()") if type(v) == tuple else cls("{0}()", POVPrint.type(type(v)))
+            else:
+                tab = ' ' if (depthlimit-1 == 0 or all(short_repr(x) for x in v)) \
+                            and len(v) < 10 else deeptab
+                v = cls("{0}{1}{2}",
+                                POVPrint.expr(f'({tab}') if type(v) == tuple else cls("{0}(", POVPrint.type(type(v))),
                                 POVPrint.join(POVPrint.expr(f',{tab}'), *(cls.value(x, depthlimit-1, full) for x in v)),
-                                cls("{0}{1}", tab, POVPrint.expr(')')))
+                                cls("{0}{1}", tab, POVPrint.expr(')') if type(v) == tuple else ')'))
         elif isinstance(v, set):
             if len(v) == 0:
                 v = cls("{0}()", POVPrint.type(type(v)))
@@ -686,13 +689,14 @@ class POVPrint:
                                                     POVPrint.value(pair[1], depthlimit-1, full))),
                         f'{tab})')
             else:
-                v = cls("{0}{1}{2}",
+                v = cls("{3}{0}{1}{2}",
                         POVPrint.expr(f'{{{tab}'),
                         POVPrint.join(POVPrint.expr(f',{tab}'), *v.items(),
                                         cons=lambda pair:
                                             POVPrint.join(POVPrint.expr(" : "), *pair,
                                                             cons=lambda x: cls.value(x, depthlimit-1, full))),
-                        cls("{0}{1}", tab, POVPrint.expr('}')))
+                        cls("{0}{1}", tab, POVPrint.expr('}')),
+                        POVPrint.type(type(v)) if type(v) != dict else "")
         elif hasattr(v, "__dir__"):
             vlist = [
                 (attr, getattr(v, attr))
@@ -767,6 +771,12 @@ class POVPrint:
 
     @classmethod
     def instance(cls, obj):
+        if type(obj).__repr__ != object.__repr__:
+            try:
+                rep = repr(obj)
+                return POVPrint("{0}{{ {1} }}", POVPrint.type(type(obj)), POVPrint.expr(rep))
+            except:
+                pass
         return POVPrint.template(POVPrint.type(type(obj)), POVPrint.id(hex(id(obj))))
 
     @classmethod
