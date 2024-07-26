@@ -21,85 +21,112 @@ else:
         POVList,
     )
 
+class __POVIdForwarder:
+
+    def __init__(self, func):
+        def forward_func(id):
+            def partial_eval(*args, **kwargs):
+                return func(*args, **kwargs, __pov_id=id)
+            return partial_eval
+        self._func = forward_func
+    
+    def __getitem__(self, id:int):
+        return self._func(id)
+    
+    def __call__(self, *args, **kwargs):
+        return self._func(0)(*args, **kwargs)
+
 def print_to(file):
     """
     Change output destination (defaults to sys.stderr)
     """
     return POV().print_to(file)
 
-def detail(depth, *, full=None, globally=False):
+@__POVIdForwarder
+def detail(depth, *, full=None, globally=False, __pov_id):
     """
     Control level of detail of printed values.
     depth:  -1 for unlimited depth (warning: there are no guards against recursion in this case!)
     full:   probe private attributes as well
     """
-    return POV().detail(depth, full=full, globally=globally)
+    return POV().detail[__pov_id](depth, full=full, globally=globally)
 
-def info(*args, **kwargs):
+@__POVIdForwarder
+def info(*args, __pov_id, **kwargs):
     """
     Simple logger; behaves like an ordinary print.
     """
-    return POV().info(*args, **kwargs)
+    return POV().info[__pov_id](*args, **kwargs)
 
-def ok(*args, **kwargs):
+@__POVIdForwarder
+def ok(*args, __pov_id, **kwargs):
     """
     Log an 'ok' event; behaves like an ordinary print.
     """
-    return POV().ok(*args, **kwargs)
+    return POV().ok[__pov_id](*args, **kwargs)
 
-def bad(*args, **kwargs):
+@__POVIdForwarder
+def bad(*args, __pov_id, **kwargs):
     """
     Log a 'bad' event; behaves like an ordinary print.
     """
-    return POV().bad(*args, **kwargs)
+    return POV().bad[__pov_id](*args, **kwargs)
 
-def warn(*args, **kwargs):
+@__POVIdForwarder
+def warn(*args, __pov_id, **kwargs):
     """
     Log a warning; behaves like an ordinary print.
     """
-    return POV().warn(*args, **kwargs)
+    return POV().warn[__pov_id](*args, **kwargs)
 
-def view(*exprs:str, view_title:str=None, **kwexprs:str):
+@__POVIdForwarder
+def view(*exprs:str, view_title:str=None, __pov_id, **kwexprs:str):
     """
     View the value of various expressions.
     """
-    return POV().view(*exprs, view_title=view_title, **kwexprs)
+    return POV().view[__pov_id](*exprs, view_title=view_title, **kwexprs)
 
-def check(*exprs:str, exit_on_failure=False, interact_on_failure=False):
+@__POVIdForwarder
+def check(*exprs:str, exit_on_failure=False, interact_on_failure=False, __pov_id):
     """
     Check if expressions evaluate (or cast) to True.
     """
-    return POV().check(*exprs, exit_on_failure=exit_on_failure, interact_on_failure=interact_on_failure)
+    return POV().check[__pov_id](*exprs, exit_on_failure=exit_on_failure, interact_on_failure=interact_on_failure)
 
-def interact(normal_exit=False, normal_quit=True):
+@__POVIdForwarder
+def interact(*, normal_exit=False, normal_quit=True, __pov_id):
     """
     Spawn an interactive session within the current context
     """
-    return POV().interact(normal_exit=normal_exit, normal_quit=normal_quit)
+    return POV().interact[__pov_id](normal_exit=normal_exit, normal_quit=normal_quit)
 
-def track_attr(obj, *attrs:str):
+@__POVIdForwarder
+def track_attr(obj, *attrs:str, __pov_id):
     """
     Track all modifications of a class or object's attrs.
     Use `all` (the built-in function) as value to track all attributes (i.e., attrs=all);
     otherwise, attributes should be strings.
     """
-    return POV().track_attr(obj, *attrs)
+    return POV().track_attr[__pov_id](obj, *attrs)
 
-def track_memfun(obj, function:str):
+@__POVIdForwarder
+def track_memfun(obj, function:str, *, __pov_id):
     """
     Track member function calls
     """
-    return POV().track_memfun(obj, function)
+    return POV().track_memfun[__pov_id](obj, function)
 
-def track(target=None, *, name=None, attrs=()):
+@__POVIdForwarder
+def track(target=None, *, name=None, attrs=(), __pov_id):
     """
     Decorator wrapping functions and classes to enable tracking
     attrs:  a tuple or list of strings / the builtin `all` indicating which attributes
             to track (cf. track_attr)
     """
-    return POV().track(target, name=name, attrs=attrs)
+    return POV().track[__pov_id](target, name=name, attrs=attrs)
 
-def nop(expr, **notes):
+@__POVIdForwarder
+def nop(expr, *, __pov_id, **notes):
     """
     Logged "nop". Keywords get printed in the logger as well.
     Always returns eval(expr) in the ambient context.
@@ -107,4 +134,4 @@ def nop(expr, **notes):
     One use case is to tweak a function argument, while retaining the original:
     __import__("pov").nop(<new_arg>, old=<old_arg>)
     """
-    return POV().nop(expr, **notes)
+    return POV().nop[__pov_id](expr, **notes)

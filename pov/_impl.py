@@ -13,6 +13,47 @@ _global_file = sys.stderr
 _global_depthlimit = 2
 _global_fullview = False
 _global_frame_ignore = [__file__]
+_global_id_range = [(None, None)]
+
+class _IdCallable:
+
+    def __init__(self, func, nop=None):
+        self._func = func
+        self._nop = nop if nop is not None else lambda *_, **__: None
+        self.__doc__ = func.__doc__
+    
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return _IdCallable(lambda *args, **kwargs: self._func(obj, *args, **kwargs),
+                           lambda *args, **kwargs: self._nop(obj, *args, **kwargs))
+
+    @staticmethod
+    def setnop(nop):
+        def constructor(func):
+            return _IdCallable(func, nop=nop)
+        return constructor
+    
+    @staticmethod
+    def returnself(func):
+        return _IdCallable(func, nop=lambda self, *_, **__: self)
+
+    @classmethod
+    def in_id_range(cls, id):
+        global _global_id_range
+        for lo, hi in _global_id_range:
+            if lo is not None and id < lo:
+                continue
+            if hi is not None and id > hi:
+                continue
+            return True
+        return False
+    
+    def __getitem__(self, id:int):
+        return self._func if self.in_id_range(id) else self._nop
+    
+    def __call__(self, *args, **kwargs):
+        return self[0](*args, **kwargs)
 
 class POV:
 
@@ -42,6 +83,7 @@ class POV:
         _global_file = file
         return self
 
+    @_IdCallable.returnself
     def detail(self, depth, *, full=None, globally=False):
         """
         Control level of detail of printed values.
@@ -62,6 +104,7 @@ class POV:
     def _printvalue(self, value):
         return POVPrint.value(value, depthlimit=self._depthlimit, full=self._fullview)
 
+    @_IdCallable.returnself
     def info(self, *args, **kwargs):
         """
         Simple logger; behaves like an ordinary print.
@@ -70,6 +113,7 @@ class POV:
             printer.print(*args, **kwargs)
         return self
     
+    @_IdCallable.returnself
     def ok(self, *args, **kwargs):
         """
         Log an 'ok' event; behaves like an ordinary print.
@@ -78,6 +122,7 @@ class POV:
             printer.print(*args, **kwargs)
         return self
 
+    @_IdCallable.returnself
     def bad(self, *args, **kwargs):
         """
         Log a 'bad' event; behaves like an ordinary print.
@@ -86,6 +131,7 @@ class POV:
             printer.print(*args, **kwargs)
         return self
     
+    @_IdCallable.returnself
     def warn(self, *args, **kwargs):
         """
         Log a warning; behaves like an ordinary print.
@@ -94,6 +140,7 @@ class POV:
             printer.print(*args, **kwargs)
         return self
     
+    @_IdCallable.returnself
     def view(self, *exprs:str, view_title=None, **kwexprs):
         """
         View the value of various expressions.
@@ -130,6 +177,7 @@ class POV:
 
         return self
     
+    @_IdCallable.setnop(lambda self, expr, **_: expr)
     def nop(self, expr, **notes):
         """
         Logged "nop". Keywords get printed in the logger as well.
@@ -159,11 +207,8 @@ class POV:
                 except Exception as exc:
                     printer.append(POVPrint.bad(), "><", POVPrint.exception(exc))
                     raise exc
-        
 
-
-
-    
+    @_IdCallable.returnself
     def check(self, *exprs:str, exit_on_failure=False, interact_on_failure=False):
         """
         Check if expressions evaluate (or cast) to True.
@@ -207,6 +252,7 @@ class POV:
 
             return self
 
+    @_IdCallable.returnself
     def interact(self, normal_exit=False, normal_quit=True):
         """
         Spawn an interactive session within the current context
@@ -233,6 +279,7 @@ class POV:
 
         return self
 
+    @_IdCallable.returnself
     def track_attr(self, obj:type|object, *attrs:str):
         """
         Track all modifications of a class or object's attrs.
@@ -283,6 +330,7 @@ class POV:
 
         return self
 
+    @_IdCallable.returnself
     def track_memfun(self, obj:type|object, function:str):
         """
         Track member function calls
@@ -309,6 +357,7 @@ class POV:
 
         return self
 
+    @_IdCallable.setnop(lambda self, target=None, /, **_: target if target is not None else (lambda t: t))
     def track(self, target=None, *, name=None, attrs=(), interact_on_exception=False):
         """
         Decorator wrapping functions and classes to enable tracking
@@ -1023,8 +1072,33 @@ def init(ignore_frames=()):
         import builtins
         builtins.print = _pov_print
     
-    global _global_depthlimit, _global_fullview, _global_frame_ignore
+    global _global_depthlimit, _global_fullview, _global_frame_ignore, _global_id_range
 
     _global_depthlimit = get_int("POV_DEPTH", _global_depthlimit)
     _global_fullview = get_int("POV_FULL", int(_global_fullview)) > 0
     _global_frame_ignore.extend(ignore_frames)
+    
+    id_range = os.environ.get("POV_IDS")
+    if id_range is not None:
+        _global_id_range = []
+        for rangestr in id_range.split(','):
+            def get_bound(arg):
+                return int(arg.strip()) if arg else None
+            try:
+                bounds = tuple(map(get_bound, rangestr.split('-')))
+            except ValueError:
+                raise ValueError(f"Cannot parse \"{rangestr}\" as integer or integer range.")
+            
+            match len(bounds):
+
+                case 0:
+                    _global_id_range = [(None, None)]
+                    break
+                case 1:
+                    bounds *= 2
+                case 2:
+                    pass
+                case n:
+                    raise ValueError(f"Range \"{rangestr}\" has too many ({n}) components!")
+            
+            _global_id_range.append(bounds)

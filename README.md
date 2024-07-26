@@ -22,7 +22,7 @@ $env:ANSICON=1                      # for coloured console output
 Then, you can inject POV debug messages in individual lines using, e.g.
 
 ```python
-__import__("pov").log("Hello world!")
+__import__("pov").info("Hello world!")
 # ...
 def foo(x, y, z):
     # ...
@@ -53,3 +53,32 @@ Set to `-1` if you want no depth limit (though this may lead to unbounded recurs
 These parameters can be controlled globally through environment variables:
 - `depth` can be controlled with `POV_DEPTH`.
 - `full` can be controlled with `POV_FULL`.
+
+### Filtering POV calls
+
+POV functions can also be decorated with an integer ID using square brackets.
+By default, all functions have ID `0`.
+For example:
+
+```python
+__import__("pov").info[1000]("Hello world!")
+# ...
+@__import__("pov").track[20]
+def foo(x, y, z):
+    # ...
+    __import__("pov").view[1]("x.bar").view[5]("y.baz()")
+    # ...
+```
+
+Which priority values are visible can be controlled through the environment variable `POV_IDS`, which can be given a comma-separated list of integers or integer ranges.
+Integer ranges are hyphen-separated pairs of integers.
+Omitted values in a range denote that the range is unbounded on that side.
+
+```bash
+POV_IDS=1000        # only "Hello world!" is visible
+POV_IDS=-           # everything is visible (this is the default); same as POV_IDS=0-
+POV_IDS=1,1000      # "Hello world!" and "x.bar" are visible
+POV_IDS=3-          # "Hello world!" and "y.baz()" are visible, and "foo" is tracked
+POV_IDS=-100        # "x.bar" and "y.baz()" are visible, and "foo" is tracked; same as POV_IDS=0-100
+POV_IDS=            # nothing is visible (*NOT* equivalent to setting POV_DISABLE=1)
+```
