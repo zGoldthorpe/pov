@@ -41,6 +41,7 @@ POV also wraps Python's builtin `print` function to match with POV's output styl
 This can be controlled through the environment variable `POV_KEEP_PRINT`: set to `1` to use Python's normal `print` function.
 
 To completely disable POV, use the environment `POV_DISABLE`.
+To instead direct POV output to a file (from the command line), use the environment `POV_FILE`.
 
 ### Object view depth
 

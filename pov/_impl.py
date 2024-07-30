@@ -15,6 +15,16 @@ _global_fullview = False
 _global_frame_ignore = [__file__]
 _global_id_range = [(None, None)]
 
+class _FileWrapper:
+
+    def __init__(self, fname):
+        self.fname = fname
+
+    def write(self, content:str):
+        with open(self.fname, 'a') as file:
+            return file.write(content)
+
+
 class _IdCallable:
 
     def __init__(self, func, nop=None):
@@ -74,13 +84,13 @@ class POV:
             self._context = dict(frame.f_locals, **frame.f_globals)
             break
 
-    @staticmethod
     def print_to(self, file):
         """
         Change output destination (defaults to sys.stderr)
         """
         global _global_file
-        _global_file = file
+        _global_file = _FileWrapper(file) if isinstance(file, str) else file
+        assert(hasattr(_global_file, "write"))
         return self
 
     @_IdCallable.returnself
@@ -1050,8 +1060,12 @@ def _pov_excepthook(exctype, value, tb):
         exit(-1)
 
 def _pov_print(*args, **kwargs):
+    global _global_file
     with POVPrint.norm() as printer:
         printer.print(*args, **kwargs)
+
+    if _global_file != sys.stderr:
+        POV.Printer._print(*args, **kwargs)
 
 def init(ignore_frames=()):
 
@@ -1073,6 +1087,9 @@ def init(ignore_frames=()):
         builtins.print = _pov_print
     
     global _global_depthlimit, _global_fullview, _global_frame_ignore, _global_id_range
+
+    if (pov_file := os.environ.get("POV_FILE")) is not None:
+        POV().print_to(pov_file)
 
     _global_depthlimit = get_int("POV_DEPTH", _global_depthlimit)
     _global_fullview = get_int("POV_FULL", int(_global_fullview)) > 0
@@ -1102,3 +1119,9 @@ def init(ignore_frames=()):
                     raise ValueError(f"Range \"{rangestr}\" has too many ({n}) components!")
             
             _global_id_range.append(bounds)
+    
+    with POVPrint.head() as printer:
+        import datetime
+        printer.print("Initialising Python Object Viewer")
+        printer.print("Invocation:", POVPrint.const(sys.argv[0]), POVPrint.join(' ', *sys.argv[1:], cons=POVPrint.attr))
+        printer.print("Time:", POVPrint.id(datetime.datetime.now().strftime("%Y-%m-%d, %H:%m:%S")))
