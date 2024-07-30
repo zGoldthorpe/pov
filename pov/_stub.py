@@ -16,6 +16,9 @@ class POV:
             return lambda x, *_, **__: x
         return self
     
+    def __getitem__(self, _):
+        return self
+    
 class POVDict(dict):
 
     def __init__(self, *args, pov_name=None, **kwargs):
