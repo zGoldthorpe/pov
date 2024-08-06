@@ -43,6 +43,8 @@ This can be controlled through the environment variable `POV_KEEP_PRINT`: set to
 To completely disable POV, use the environment `POV_DISABLE`.
 To instead direct POV output to a file (from the command line), use the environment `POV_FILE`.
 
+At startup, you can also have POV print environment variable values by populating `POV_ENV` with a space-separated list of environment variable names.
+
 ### Object view depth
 
 The depth and detail at which objects are probed (e.g., with `pov.view()`) can be managed at runtime with the `pov.detail(depth, *, full, globally)` function.

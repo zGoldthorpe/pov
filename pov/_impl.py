@@ -1125,3 +1125,5 @@ def init(ignore_frames=()):
         printer.print("Initialising Python Object Viewer")
         printer.print("Invocation:", POVPrint.const(sys.argv[0]), POVPrint.join(' ', *sys.argv[1:], cons=POVPrint.attr))
         printer.print("Time:", POVPrint.id(datetime.datetime.now().strftime("%Y-%m-%d, %H:%m:%S")))
+        for envvar in os.environ.get("POV_ENV", "").split():
+            printer.print(POVPrint.attr(f"${envvar}:"), POVPrint.const(os.environ.get(envvar)))

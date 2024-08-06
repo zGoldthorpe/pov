@@ -6,7 +6,7 @@ Glorified printing functionality and low-budget debugging.
 
 from os import environ as _env
 
-if _env.get("POV_DISABLE", "0").lower() in ["0", "false"]:
+if _env.get("POV_DISABLE", "0").lower() in ["0", "false"] or _env.get("POV_FILE") is not None:
     from ._impl import (
         POV,
         POVDict,
