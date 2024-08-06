@@ -267,7 +267,7 @@ class POV:
         """
         Spawn an interactive session within the current context
         """
-        context = self._get_context()
+        context = self._context
         ctrl = 'Z' if sys.platform == "win32" else 'D'
         close_msg = f"Press Ctrl-{ctrl} to close interactive mode and continue."
         exit_cmds = []
