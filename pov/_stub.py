@@ -18,13 +18,18 @@ class POV:
     
     def __getitem__(self, _):
         return self
+
+class _IdCallable:
+
+    def __init__(self, func):
+        self._func = func
+
+    def __getitem__(self, _):
+        return self
     
-class POVDict(dict):
+    def __call__(self, *args, **kwargs):
+        return self._func(*args, **kwargs)
 
-    def __init__(self, *args, pov_name=None, **kwargs):
-        dict.__init__(self, *args, **kwargs)
-
-class POVList(list):
-
-    def __init__(self, *args, pov_name=None, **kwargs):
-        list.__init__(self, *args, **kwargs)
+@_IdCallable
+def intercept(target, *_, **__):
+    return target

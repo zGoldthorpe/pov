@@ -9,16 +9,14 @@ from os import environ as _env
 if _env.get("POV_DISABLE", "0").lower() in ["0", "false"] or _env.get("POV_FILE") is not None:
     from ._impl import (
         POV,
-        POVDict,
-        POVList,
+        intercept,
         init as __init__,
     )
     __init__(ignore_frames=(__file__,))
 else:
     from ._stub import (
         POV,
-        POVDict,
-        POVList,
+        intercept,
     )
 
 class __POVIdForwarder:

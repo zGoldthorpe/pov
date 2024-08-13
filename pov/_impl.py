@@ -3,7 +3,7 @@ POV module
 
 Glorified printing functionality
 """
-
+import builtins
 import code
 import inspect
 import os
@@ -324,11 +324,7 @@ class POV:
                     with POVPrint.attr() as printer:
                         printer.print(POVPrint.member(obj, attr),
                                 ":=", self._printvalue(value))
-                    
-                    if isinstance(value, dict):
-                        value = POVDict(value, pov_name=POVPrint.member(obj, attr))
-                    elif isinstance(value, list):
-                        value = POVList(value, pov_name=POVPrint.member(obj, attr))
+                    value = _POVObj(value, POVPrint.member(obj, attr))
                     
                 return old_setattr(self_, attr, value)
             
@@ -663,7 +659,7 @@ class POVPrint:
         printer = POV.Printer('', "33;2")
         return printer if arg is None else printer(arg)
 
-    ### Styled maccros ###
+    ### Styled macros ###
 
     _value_depth=0
     @classmethod
@@ -865,161 +861,99 @@ class POVPrint:
 
 ##### POV data structure tracking #####
 
-class POVObj:
-    """
-    Base class for wrapping Python data structures
-    """
-    def __init__(self, name, base_type):
-        self._name = name
-        self._base_type = base_type
+@_IdCallable
+def intercept(target, name=None):
+    if isinstance(name, str):
+        name = POVPrint.expr(name)
+    with POVPrint.info() as printer:
+        printer.print("Intercepting", POVPrint.value(target), "as", name)
+    return _POVObj(target, name)
 
-        with POVPrint.info() as printer:
-            printer.print("Intercepting", POVPrint.type(base_type), "instance", name)
+class _POVObj:
+    """
+    Class wrapping any kind of object to detect interaction with an existing object.
+
+    Intended usage:
+    target_obj = POVObj(target_obj)
+
+    TODO: incomplete (as I need it for something right now)
+    """
+    def __init__(self, target, name=None, /):
+        self._pov_target = target
+        self._pov_name = POVPrint.value(target) if name is None else name
+        
+        # intercept type
+        old_type = builtins.type
+        class new_type(old_type):
+            def __new__(cls, *args):
+                if len(args) != 1:
+                    return old_type(*args)
+                arg, = args
+                return old_type(self._pov_target if self == arg else arg)
+        
+        builtins.type = new_type
+
+    @property
+    def __class__(self):
+        return self._pov_target.__class__
     
     def __repr__(self):
-        return f"{self._name}{POVPrint.expr(self._base_type.__repr__(self))}"
+        return repr(self._pov_target)
+    def __str__(self):
+        return str(self._pov_target)
+    def __getitem__(self, key):
+        return _POVObj(self._pov_target[key], POVPrint("{}[{}]", self._pov_name, POVPrint.value(key)))
+    def __setitem__(self, key, val):
+        with POVPrint.attr() as printer:
+            printer.print(POVPrint("{}[{}] = {}", self._pov_name, POVPrint.value(key), POVPrint.value(val)))
+        self._pov_target[key] = val
+    def __delitem__(self, key):
+        with POVPrint.attr() as printer:
+            printer.print(POVPrint("del {}[{}]", self._pov_name, POVPrint.value(key)))
+        del self._pov_target[key]
+    def __len__(self):
+        return len(self._pov_target)
+    def __iter__(self):
+        return _POVObj(iter(self._pov_target), POVPrint("{}({})", POVPrint.const("iter"), self._pov_name))
+    def __next__(self):
+        return _POVObj(next(self._pov_target), POVPrint("{}({})", POVPrint.const("next"), self._pov_name))
+    def __getattr__(self, attr:str, default=None, /):
+        if attr.startswith("_pov"):
+            return vars(self)[attr]
+        return _POVObj(getattr(self._pov_target, attr, default), POVPrint("{}.{}", self._pov_name, POVPrint.attr(attr)))
+    def __setattr__(self, attr:str, val, /):
+        if attr.startswith("_pov"):
+            vars(self)[attr] = val
+            return
+        with POVPrint.attr() as printer:
+            printer.print(POVPrint("{}.{} = {}", self._pov_name, POVPrint.attr(attr), POVPrint.value(val)))
+        setattr(self._pov_target, attr, val)
+    def __call__(self, *args, **kwargs):
+        with POVPrint.attr() as printer:
+            args_str = POVPrint.join(", ", *args, cons=POVPrint.value) if args else None
+            kwargs_str = POVPrint.join(", ", *(
+                POVPrint("{}={}", POVPrint.id(k), POVPrint.value(v)) for k, v in kwargs.items())) if kwargs else None
+            if args_str is None:
+                params = "" if kwargs_str is None else kwargs_str
+            else:
+                params = args_str if kwargs_str is None else POVPrint.join(", ", args_str, kwargs_str)
+            name = POVPrint("{}({})", self._pov_name, params)
+            printer.print(name)
+        if (res := self._pov_target(*args, **kwargs)) is not None:
+            return _POVObj(res, name)
+    def __eq__(self, other):
+        return self._pov_target == other
+    def __ne__(self, other):
+        return self._pov_target != other
+    def __lt__(self, other):
+        return self._pov_target < other
+    def __le__(self, other):
+        return self._pov_target <= other
+    def __gt__(self, other):
+        return self._pov_target > other
+    def __ge__(self, other):
+        return self._pov_target >= other
 
-class POVDict(POVObj, dict):
-    """
-    Dictionary wrapper, to track modifications and "get" key-misses
-    """
-
-    def __init__(self, *args, pov_name="POVDict", **kwargs):
-        dict.__init__(self, *args, **kwargs)
-        POVObj.__init__(self, pov_name, dict)
-    
-    def __delitem__(self, key, /):
-        with POVPrint.attr() as printer:
-            printer.print("del", self._name, '[', POVPrint.value(key), ']')
-        return dict.__delitem__(self, key)
-    
-    def __setitem__(self, key, value, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, '[', POVPrint.value(key), ']', ":=", POVPrint.value(value))
-        return dict.__setitem__(self, key, value)
-    
-    def __ior__(self, rhs, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "|=")
-            rhs = dict(rhs)
-            for k, v in rhs:
-                printer.print('\t', POVPrint.value(k), "=>", POVPrint.value(v))
-        return dict.__ior__(self, rhs)
-
-    def clear(self, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, 'cleared')
-        return dict.clear(self)
-    
-    def get(self, key, default=None, /):
-        if key not in self:
-            with POVPrint.attr() as printer:
-                printer.print(self._name, 'get(', POVPrint.value(key), ') missed',
-                             "=>", POVPrint.value(default))
-        return dict.get(self, key, default)
-    
-    def pop(self, key, default=None, /):
-        had = key in self
-        value = dict.pop(self, key, default)
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "pop(", POVPrint.value(key), ')',
-                        POVPrint.info("<miss>" if not had else "<hit>"),
-                        "=>", POVPrint.value(value))
-        return value
-    
-    def popitem(self, /):
-        k, v = dict.popitem(self)
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "popitem", "=>",
-                         '(', POVPrint.value(k), ',', POVPrint.value(v), ')')
-        return k, v
-    
-    def setdefault(self, key, default=None, /):
-        had = key in self
-        value = dict.setdefault(self, key, default)
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "setdefault(", POVPrint.value(key), ")", "=>", POVPrint.value(value),
-                         POVPrint.info("<no update>" if had else "<updated>"))
-        return value
-    
-    def update(self, *args, **kwargs):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "update:")
-            for arg in args:
-                arg = dict(arg)
-                for key in arg:
-                    val = arg[key]
-                    printer.print('\t', POVPrint.value(key), "=>", POVPrint.value(val))
-            for kw in kwargs:
-                val = kwargs[kw]
-                printer.print('\t', POVPrint.value(key), "=>", POVPrint.value(val))
-        return dict.update(self, *args, **kwargs)
-
-class POVList(POVObj, list):
-    
-    def __init__(self, *args, pov_name="POVList", **kwargs):
-        list.__init__(self, *args, **kwargs)
-        POVObj.__init__(self, pov_name, list)
-    
-    def __delitem__(self, key, /):
-        with POVPrint.attr() as printer:
-            printer.print("del", self._name, '[', POVPrint.const(key), ']')
-        return list.__delitem__(self, key)
-    
-    def __iadd__(self, rhs, /):
-        rhs = list(rhs)
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "+=")
-            for it in rhs:
-                printer.print('\t', POVPrint.value(it))
-        return list.__iadd__(self, rhs)
-    
-    def __imul__(self, mul, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "*=", POVPrint.value(mul))
-        return list.__imul__(self, mul)
-    
-    def __setitem__(self, index, value, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, '[', POVPrint.const(index), ']', ":=", POVPrint.value(value))
-        return list.__setitem__(self, index, value)
-    
-    def append(self, obj, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "append(", POVPrint.value(obj), ")")
-        return list.append(self, obj)
-
-    def clear(self, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "cleared")
-        return list.clear(self)
-    
-    def insert(self, index, obj, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "insert", POVPrint.value(obj),
-                         "at index", POVPrint.const(index))
-        return list.insert(self, index, obj)
-    
-    def pop(self, index=-1, /):
-        value = list.pop(self, index)
-        with POVPrint.attr() as printer:
-            printer.print(self._name, f"pop(", POVPrint.const(index), ")", "=>", POVPrint.value(value))
-        return value
-    
-    def remove(self, obj, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "removing", POVPrint.value(obj))
-        return list.remove(self, obj)
-
-    def reverse(self, /):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "in-place reversal")
-        return list.reverse(self)
-    
-    def sort(self, *, key=None, reverse=False):
-        with POVPrint.attr() as printer:
-            printer.print(self._name, "sorted")
-        return list.sort(self, key=key, reverse=reverse)
 
 def _pov_excepthook(exctype, value, tb):
     global _global_frame_ignore
@@ -1083,7 +1017,6 @@ def init(ignore_frames=()):
 
     POV.Printer._print = print
     if get_int("POV_KEEP_PRINT") == 0:
-        import builtins
         builtins.print = _pov_print
     
     global _global_depthlimit, _global_fullview, _global_frame_ignore, _global_id_range
