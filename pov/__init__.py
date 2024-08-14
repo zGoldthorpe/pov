@@ -10,13 +10,17 @@ if _env.get("POV_DISABLE", "0").lower() in ["0", "false"] or _env.get("POV_FILE"
     from ._impl import (
         POV,
         intercept,
-        init as __init__,
+        sanitise,
+        sanitise_inputs,
+        init as _init,
     )
-    __init__(ignore_frames=(__file__,))
+    _init(ignore_frames=(__file__,))
 else:
     from ._stub import (
         POV,
         intercept,
+        sanitise,
+        sanitise_inputs,
     )
 
 class __POVIdForwarder:

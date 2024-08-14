@@ -862,12 +862,51 @@ class POVPrint:
 ##### POV data structure tracking #####
 
 @_IdCallable
-def intercept(target, name=None):
+def intercept(target, name=None, *, sanitise_methods=False):
+    if __is_pov_obj(target):
+        target._pov_set(name=name, sanitise_methods=sanitise_methods)
+        return target
+    
     if isinstance(name, str):
         name = POVPrint.expr(name)
+    elif name is None:
+        name = POVPrint.value(target)
+        
     with POVPrint.info() as printer:
         printer.print("Intercepting", POVPrint.value(target), "as", name)
-    return _POVObj(target, name)
+    return _POVObj(target, name, sanitise_methods=sanitise_methods)
+
+def __is_pov_obj(target):
+    return _POV_type._type(target) == _POVObj
+
+def sanitise(target):
+    """
+    Strips _POVObj wrapper
+    """
+    if __is_pov_obj(target):
+        return sanitise(target._pov_target)
+    return target
+
+def sanitise_inputs(func):
+    def sanitised(*args, **kwargs):
+        return func(
+            *(map(sanitise, args)),
+            **{key: sanitise(val) for key, val in kwargs.items()}
+        )
+    return sanitised
+
+class _POV_type(type):
+    _overrides = {}
+    _type = type
+    def __new__(cls, *args):
+        if len(args) != 1:
+            return _POV_type._type(*args)
+        arg, = args
+        return _POV_type._overrides.get(id(arg), _POV_type._type(arg))
+    
+    @classmethod
+    def override(cls, obj, ty):
+        _POV_type._overrides[id(obj)] = ty
 
 class _POVObj:
     """
@@ -878,31 +917,29 @@ class _POVObj:
 
     TODO: incomplete (as I need it for something right now)
     """
-    def __init__(self, target, name=None, /):
-        self._pov_target = target
+    def __init__(self, target, name=None, *, sanitise_methods=False):
+        self._pov_target = sanitise(target)
         self._pov_name = POVPrint.value(target) if name is None else name
-        
-        # intercept type
-        old_type = builtins.type
-        class new_type(old_type):
-            def __new__(cls, *args):
-                if len(args) != 1:
-                    return old_type(*args)
-                arg, = args
-                return old_type(self._pov_target if self == arg else arg)
-        
-        builtins.type = new_type
+        self._pov_sanitise = sanitise_methods
+        _POV_type.override(self, type(target))        
 
     @property
     def __class__(self):
         return self._pov_target.__class__
     
+    def _pov_subobj(self, target, name=None, /):
+        return _POVObj(target, name, sanitise_methods=self._pov_sanitise)
+    def _pov_set(self, *, name=None, sanitise_methods=None):
+        if name is not None:
+            self._pov_name = name
+        if sanitise_methods is not None:
+            self._pov_sanitise = sanitise_methods
     def __repr__(self):
         return repr(self._pov_target)
     def __str__(self):
         return str(self._pov_target)
     def __getitem__(self, key):
-        return _POVObj(self._pov_target[key], POVPrint("{}[{}]", self._pov_name, POVPrint.value(key)))
+        return self._pov_subobj(self._pov_target[key], POVPrint("{}[{}]", self._pov_name, POVPrint.value(key)))
     def __setitem__(self, key, val):
         with POVPrint.attr() as printer:
             printer.print(POVPrint("{}[{}] = {}", self._pov_name, POVPrint.value(key), POVPrint.value(val)))
@@ -914,13 +951,14 @@ class _POVObj:
     def __len__(self):
         return len(self._pov_target)
     def __iter__(self):
-        return _POVObj(iter(self._pov_target), POVPrint("{}({})", POVPrint.const("iter"), self._pov_name))
+        return self._pov_subobj(iter(self._pov_target), POVPrint("{}({})", POVPrint.const("iter"), self._pov_name))
     def __next__(self):
-        return _POVObj(next(self._pov_target), POVPrint("{}({})", POVPrint.const("next"), self._pov_name))
+        return self._pov_subobj(next(self._pov_target), POVPrint("{}({})", POVPrint.const("next"), self._pov_name))
     def __getattr__(self, attr:str, default=None, /):
         if attr.startswith("_pov"):
             return vars(self)[attr]
-        return _POVObj(getattr(self._pov_target, attr, default), POVPrint("{}.{}", self._pov_name, POVPrint.attr(attr)))
+        got = getattr(self._pov_target, attr, default)
+        return self._pov_subobj(got, POVPrint("{}.{}", self._pov_name, POVPrint.attr(attr)))
     def __setattr__(self, attr:str, val, /):
         if attr.startswith("_pov"):
             vars(self)[attr] = val
@@ -939,20 +977,39 @@ class _POVObj:
                 params = args_str if kwargs_str is None else POVPrint.join(", ", args_str, kwargs_str)
             name = POVPrint("{}({})", self._pov_name, params)
             printer.print(name)
-        if (res := self._pov_target(*args, **kwargs)) is not None:
-            return _POVObj(res, name)
+        pov_target = sanitise_inputs(self._pov_target) if self._pov_sanitise else self._pov_target
+        if (res := pov_target(*args, **kwargs)) is not None:
+            return self._pov_subobj(res, name)
     def __eq__(self, other):
-        return self._pov_target == other
+        return self._pov_target == sanitise(other)
     def __ne__(self, other):
-        return self._pov_target != other
+        return self._pov_target != sanitise(other)
     def __lt__(self, other):
-        return self._pov_target < other
+        return self._pov_target < sanitise(other)
     def __le__(self, other):
-        return self._pov_target <= other
+        return self._pov_target <= sanitise(other)
     def __gt__(self, other):
-        return self._pov_target > other
+        return self._pov_target > sanitise(other)
     def __ge__(self, other):
-        return self._pov_target >= other
+        return self._pov_target >= sanitise(other)
+    def __add__(self, other):
+        return self._pov_target + sanitise(other)
+    def __radd__(self, other):
+        return sanitise(other) + self._pov_target
+    def __iadd__(self, other):
+        with POVPrint.attr() as printer:
+            printer.print(POVPrint("{} += {}", self._pov_name, POVPrint.value(other)))
+        self._pov_target += sanitise(other)
+    def __mul__(self, other):
+        return self._pov_target * sanitise(other)
+    def __rmul__(self, other):
+        return sanitise(other) * self._pov_target
+    def __imul__(self, other):
+        with POVPrint.attr() as printer:
+            printer.print(POVPrint("{} *= {}", self._pov_name, POVPrint.value(other)))
+        self._pov_target *= sanitise(other)
+
+    
 
 
 def _pov_excepthook(exctype, value, tb):
@@ -1014,6 +1071,7 @@ def init(ignore_frames=()):
         sys.__excepthook__ = _pov_excepthook
         sys.excepthook = _pov_excepthook
 
+    builtins.type = _POV_type
 
     POV.Printer._print = print
     if get_int("POV_KEEP_PRINT") == 0:

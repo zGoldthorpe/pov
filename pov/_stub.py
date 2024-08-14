@@ -33,3 +33,9 @@ class _IdCallable:
 @_IdCallable
 def intercept(target, *_, **__):
     return target
+
+def sanitise(target):
+    return target
+
+def sanitise_inputs(func):
+    return func
